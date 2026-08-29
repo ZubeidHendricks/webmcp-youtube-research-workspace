@@ -10,6 +10,8 @@ page registers its own tools with the browser through
 YouTube, read transcripts, and file cited notes into the same workspace the human is
 looking at — and can read back what the human did.
 
+**Live:** https://webmcp-youtube-research-workspace-28n2v61uf.vercel.app
+
 Built for [The WebMCP Challenge](https://webmcp.devpost.com/). The YouTube layer is adapted
 from [ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server),
 an existing stdio MCP server; this project moves that capability *into the page*, where the
@@ -104,14 +106,34 @@ is driving the agent — see Chrome's
    directly.
 5. **Marks `remove_item` as destructive** and asks the agent to confirm before calling it.
 
-## Known limitation
+## Known limitation: transcripts in production
 
-Transcripts come from YouTube's caption endpoint via `youtube-transcript`, which is not an
-authenticated API. It works reliably from a local machine, but YouTube sometimes blocks
-datacenter IPs — so transcript fetches may fail on Vercel where search and video lookup
-(which use the official Data API) still succeed. The UI surfaces this as a per-source
-message rather than a hard failure. Verify on your deployment before recording the demo; if
-it's blocked, the fix is a proxy or an authenticated captions path.
+Transcripts come from YouTube's caption endpoint via `youtube-transcript`, not an
+authenticated API. Measured behaviour, local vs. this app's Vercel deployment:
+
+| Video | Caption track | Local | Vercel |
+| --- | --- | --- | --- |
+| `dQw4w9WgXcQ` | manually uploaded | ✅ | ✅ |
+| `Is2NHa7awWY` | auto-generated (ASR) | ✅ | ❌ |
+| `EoNH3Tn8wYE` | auto-generated (ASR) | ✅ | ❌ |
+| `jNQXAC9IVRw` | auto-generated (ASR) | ✅ | ❌ |
+
+The result is deterministic, not rate limiting: **YouTube serves manually uploaded caption
+tracks to datacenter IPs but withholds auto-generated ones.** Most videos only have ASR
+captions, so `read_transcript` fails for most videos in production while working everywhere
+locally. Search and video lookup are unaffected — they use the official Data API.
+
+Routing through YouTube's InnerTube API (`youtubei.js`) was tried and does not help; its
+`get_transcript` endpoint returns HTTP 400 regardless of IP.
+
+Known ways to fix it, none free:
+
+- a residential/rotating proxy for caption fetches only
+- a third-party transcript API (Supadata, youtube-transcript.io, etc.)
+- restricting the demo to videos with publisher-uploaded captions
+
+The UI surfaces a failure as a per-source message rather than a hard error, so the
+workspace stays usable when a transcript can't be fetched.
 
 ## Deploy
 
