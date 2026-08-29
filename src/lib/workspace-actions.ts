@@ -27,11 +27,15 @@ export function useWorkspaceActions() {
   } = useWorkspace();
 
   const runSearch = useCallback(
-    async (query: string, limit = 8): Promise<VideoResult[]> => {
+    async (
+      query: string,
+      { limit = 8, captionedOnly = true }: { limit?: number; captionedOnly?: boolean } = {},
+    ): Promise<VideoResult[]> => {
       setBusy(true);
       try {
         const response = await fetch(
-          `/api/youtube/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+          `/api/youtube/search?q=${encodeURIComponent(query)}&limit=${limit}` +
+            (captionedOnly ? "" : "&captioned=any"),
         );
         const body = await readJson<{ results: VideoResult[] }>(response);
         setTopic(query);

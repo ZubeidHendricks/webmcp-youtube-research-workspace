@@ -5,7 +5,7 @@ import { formatTimestamp, type TranscriptResult } from "./types";
 export class TranscriptUnavailableError extends Error {
   constructor(videoId: string, cause?: unknown) {
     super(
-      `No transcript available for video ${videoId}. It may have captions disabled, be age-restricted, or YouTube may be blocking this server's IP.`,
+      `No readable transcript for video ${videoId}. Most likely it has only auto-generated captions, which YouTube does not serve to deployed servers — search with the "captioned only" filter to find sources that work. It may also have captions disabled or be age-restricted.`,
     );
     this.name = "TranscriptUnavailableError";
     this.cause = cause;

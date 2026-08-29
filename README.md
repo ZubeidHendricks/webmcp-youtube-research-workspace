@@ -108,29 +108,38 @@ is driving the agent — see Chrome's
 
 ## Known limitation: transcripts in production
 
-Transcripts come from YouTube's caption endpoint via `youtube-transcript`, not an
-authenticated API. Measured behaviour, local vs. this app's Vercel deployment:
+Transcripts come from YouTube's caption endpoint, not an authenticated API. They work
+reliably from a local machine and fail for almost every video on a deployed server.
 
-| Video | Caption track | Local | Vercel |
-| --- | --- | --- | --- |
-| `dQw4w9WgXcQ` | manually uploaded | ✅ | ✅ |
-| `Is2NHa7awWY` | auto-generated (ASR) | ✅ | ❌ |
-| `EoNH3Tn8wYE` | auto-generated (ASR) | ✅ | ❌ |
-| `jNQXAC9IVRw` | auto-generated (ASR) | ✅ | ❌ |
+Diagnosed by fetching the YouTube watch page from a Vercel function and inspecting it:
 
-The result is deterministic, not rate limiting: **YouTube serves manually uploaded caption
-tracks to datacenter IPs but withholds auto-generated ones.** Most videos only have ASR
-captions, so `read_transcript` fails for most videos in production while working everywhere
-locally. Search and video lookup are unaffected — they use the official Data API.
+| Stage | Local | Vercel |
+| --- | --- | --- |
+| Watch page fetch | 200 | 200 |
+| `captionTracks` present for an ASR-only video | yes | **no** |
+| `captionTracks` present for a video with uploaded captions | yes | yes |
+| Caption track body downloads | yes | empty for most |
 
-Routing through YouTube's InnerTube API (`youtubei.js`) was tried and does not help; its
-`get_transcript` endpoint returns HTTP 400 regardless of IP.
+**YouTube strips caption track metadata from watch pages served to datacenter IPs**, except
+for videos with publisher-uploaded caption tracks. Since most videos rely on auto-generated
+(ASR) captions, `read_transcript` fails for most videos in production. Search and video
+lookup are unaffected — they use the official Data API.
 
-Known ways to fix it, none free:
+Ruled out by testing, so you don't have to repeat it:
+
+- **InnerTube** (`youtubei.js`) — its `get_transcript` endpoint returns HTTP 400 regardless of IP.
+- **A consent cookie** (`CONSENT=YES+cb; SOCS=CAI`) on the watch page fetch — no effect.
+- **`videoCaption=closedCaption` search filter** — YouTube counts ASR tracks as closed
+  captions, so it does not select for readable videos. Of 12 videos sampled this way, 1 had
+  a readable transcript in production.
+- **Fetching captions from the browser instead** — `youtube.com/api/timedtext` does send
+  permissive CORS headers, but the caption track URL only exists in the watch page, which
+  does not, so the browser cannot discover it.
+
+Fixing it properly needs one of:
 
 - a residential/rotating proxy for caption fetches only
-- a third-party transcript API (Supadata, youtube-transcript.io, etc.)
-- restricting the demo to videos with publisher-uploaded captions
+- a third-party transcript API (Supadata, youtube-transcript.io, and similar)
 
 The UI surfaces a failure as a per-source message rather than a hard error, so the
 workspace stays usable when a transcript can't be fetched.

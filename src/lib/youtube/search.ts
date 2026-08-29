@@ -2,15 +2,29 @@ import "server-only";
 import { withYouTubeClient } from "./client";
 import type { VideoResult } from "./types";
 
+export interface SearchOptions {
+  maxResults?: number;
+  /**
+   * Restrict to videos with a real caption track.
+   *
+   * YouTube withholds auto-generated (ASR) captions from datacenter IPs, so on a
+   * deployed server only publisher-uploaded captions can be read. Filtering the
+   * search itself means every result the workspace offers is one we can actually
+   * transcribe — see the transcript section of the README.
+   */
+  captionedOnly?: boolean;
+}
+
 export async function searchVideos(
   query: string,
-  maxResults = 8,
+  { maxResults = 8, captionedOnly = true }: SearchOptions = {},
 ): Promise<VideoResult[]> {
   const response = await withYouTubeClient((youtube) =>
     youtube.search.list({
       part: ["snippet"],
       q: query,
       type: ["video"],
+      videoCaption: captionedOnly ? "closedCaption" : "any",
       maxResults: Math.min(Math.max(maxResults, 1), 25),
     }),
   );

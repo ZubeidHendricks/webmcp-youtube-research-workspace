@@ -28,6 +28,7 @@ export function Workspace() {
   } = useWorkspace();
   const { runSearch, collectSource, loadTranscript } = useWorkspaceActions();
   const [draftQuery, setDraftQuery] = useState("");
+  const [captionedOnly, setCaptionedOnly] = useState(true);
   const [draftNote, setDraftNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +54,7 @@ export function Workspace() {
           event.preventDefault();
           if (!draftQuery.trim()) return;
           void guard(async () => {
-            await runSearch(draftQuery.trim());
+            await runSearch(draftQuery.trim(), { captionedOnly });
             setFocus({ kind: "results" });
           });
         }}
@@ -73,6 +74,16 @@ export function Workspace() {
           {busy ? "Searching…" : "Search"}
         </button>
       </form>
+
+      <label className="-mt-2 flex items-center gap-2 text-xs text-foreground/50">
+        <input
+          type="checkbox"
+          className="size-3.5 accent-current"
+          checked={captionedOnly}
+          onChange={(event) => setCaptionedOnly(event.target.checked)}
+        />
+        Prefer videos with caption tracks
+      </label>
 
       {error && (
         <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-900 dark:text-red-200">

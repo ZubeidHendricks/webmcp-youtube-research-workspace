@@ -40,10 +40,10 @@ export function ResearchTools() {
   } = useWorkspace();
   const { runSearch, collectSource, loadTranscript } = useWorkspaceActions();
 
-  useWebMcpTool<{ query?: string; limit?: number }>({
+  useWebMcpTool<{ query?: string; limit?: number; include_uncaptioned?: boolean }>({
     name: "search_videos",
     description:
-      "Search YouTube and show the results in the workspace's results panel. Use this to find candidate sources for the research topic.",
+      "Search YouTube and show the results in the workspace's results panel. Defaults to videos that advertise a caption track. Use this to find candidate sources for the research topic.",
     inputSchema: {
       type: "object",
       properties: {
@@ -52,20 +52,30 @@ export function ResearchTools() {
           type: "number",
           description: "How many results to return (1-25, default 8).",
         },
+        include_uncaptioned: {
+          type: "boolean",
+          description:
+            "Set true to also return videos with no advertised caption track.",
+        },
       },
       required: ["query"],
     },
-    execute: async ({ query, limit }) => {
+    execute: async ({ query, limit, include_uncaptioned }) => {
       if (typeof query !== "string" || query.trim().length === 0) {
         return "Provide a search query.";
       }
       const count = Math.min(Math.max(Number(limit) || 8, 1), 25);
+      const captionedOnly = include_uncaptioned !== true;
       try {
-        const found = await runSearch(query.trim(), count);
+        const found = await runSearch(query.trim(), { limit: count, captionedOnly });
         setFocus({ kind: "results" });
-        if (found.length === 0) return `No results for "${query}".`;
+        if (found.length === 0) {
+          return captionedOnly
+            ? `No captioned videos found for "${query}". Retry with include_uncaptioned to widen the search, but their transcripts will not be readable.`
+            : `No results for "${query}".`;
+        }
         return [
-          `${found.length} results for "${query}" (now on screen):`,
+          `${found.length}${captionedOnly ? " captioned" : ""} results for "${query}" (now on screen):`,
           ...found.map(
             (video) => `- ${video.title} — ${video.channelTitle} [${video.videoId}]`,
           ),
