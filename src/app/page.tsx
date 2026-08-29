@@ -1,29 +1,25 @@
 import { AgentStatus } from "@/components/agent-status";
-import { TaskBoard } from "@/components/task-board";
-import { TaskTools } from "@/components/task-tools";
-import { TasksProvider } from "@/lib/tasks-store";
+import { ResearchTools } from "@/components/research-tools";
+import { Workspace } from "@/components/workspace";
+import { WorkspaceProvider } from "@/lib/workspace-store";
 
 export default function Home() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-8 px-6 py-16">
+    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-6 py-12">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">WebMCP Task Board</h1>
-        <p className="text-sm text-foreground/60">
-          A starter app that exposes its own UI as tools an AI agent can call, using the
-          WebMCP <code className="font-mono text-xs">document.modelContext</code> API.
+        <h1 className="text-2xl font-semibold tracking-tight">YouTube Research Workspace</h1>
+        <p className="max-w-2xl text-sm text-foreground/60">
+          Search YouTube, collect sources, and build a cited set of notes — together with an
+          AI agent. The page registers its own tools with the browser via WebMCP, so your
+          agent works inside the same workspace you do.
         </p>
       </header>
 
-      <TasksProvider>
+      <WorkspaceProvider>
         <AgentStatus />
-        <TaskBoard />
-        <TaskTools />
-      </TasksProvider>
-
-      <footer className="mt-auto text-xs text-foreground/40">
-        Tools registered: list_tasks, add_task, set_task_status, delete_task,
-        set_board_filter.
-      </footer>
+        <Workspace />
+        <ResearchTools />
+      </WorkspaceProvider>
     </main>
   );
 }

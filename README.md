@@ -1,107 +1,125 @@
-# WebMCP Task Board
+# YouTube Research Workspace
 
-> **Placeholder name.** The WebMCP Challenge rules say the project name must not be
-> AI-generated — rename this before submitting.
+> **Placeholder name.** The WebMCP Challenge rules prohibit AI-generated project names —
+> rename this before submitting.
 
-A Next.js starter for [The WebMCP Challenge](https://webmcp.devpost.com/). It exposes its
-own interface to AI agents through the WebMCP browser API
-(`document.modelContext.registerTool`), so a person and their agent operate the same board:
-anything the agent does is immediately visible on screen, and anything the person does is
-visible to the agent on the next `list_tasks` call.
+A research workspace for YouTube that a person and an AI agent operate **together**. The
+page registers its own tools with the browser through
+[WebMCP](https://github.com/webmachinelearning/webmcp)
+(`document.modelContext.registerTool`), so whatever agent is driving the page can search
+YouTube, read transcripts, and file cited notes into the same workspace the human is
+looking at — and can read back what the human did.
+
+Built for [The WebMCP Challenge](https://webmcp.devpost.com/). The YouTube layer is adapted
+from [ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server),
+an existing stdio MCP server; this project moves that capability *into the page*, where the
+agent and the human share one artifact instead of the agent working alone in a chat window.
+
+## Why WebMCP fits
+
+Video research is slow for a person (transcripts are long) and blind for an agent (a chat
+agent can summarize a video but can't hand you a workspace). Splitting it works badly in
+both directions. Here the two halves share state:
+
+- The agent calls `read_transcript` with a query filter and finds the three moments that
+  matter across an hour of video.
+- It calls `cite_moment`, and a timestamped, clickable citation appears in the researcher's
+  notes panel — with the agent's reasoning attached.
+- It calls `set_focus` to put the relevant source on screen while it explains.
+- The researcher cites a moment themselves; the agent sees it on its next `read_workspace`.
 
 ## Registered tools
 
 | Tool | What it does |
 | --- | --- |
-| `list_tasks` | Lists tasks, optionally filtered by status |
-| `add_task` | Adds an open task |
-| `set_task_status` | Marks a task done or reopens it |
-| `delete_task` | Deletes a task (agent is told to confirm first) |
-| `set_board_filter` | Changes what the human sees on screen |
+| `search_videos` | Searches YouTube; results appear in the workspace |
+| `collect_source` | Pulls a video into the workspace as a research source |
+| `read_transcript` | Reads a source's timestamped transcript, filterable by query or time range |
+| `cite_moment` | Files a citation anchored to an exact moment, with commentary |
+| `add_note` | Adds a freeform note — a synthesis, question, or next step |
+| `read_workspace` | Reads current topic, sources, and all notes (including the human's) |
+| `set_focus` | Changes what the researcher sees on screen |
+| `remove_item` | Removes a source or note (destructive; confirmation requested) |
 
-## Getting started
+## Setup
 
 ```bash
-npm run dev     # http://localhost:3000
-npm run lint
-npm run build
+npm install
+cp .env.example .env.local   # add a YouTube Data API v3 key
+npm run dev                  # http://localhost:3000
 ```
 
-The app works as a normal web app in any browser. To exercise the agent tools you need a
+`YOUTUBE_API_KEY` is required. `YOUTUBE_API_KEY2` / `YOUTUBE_API_KEY3` are optional quota
+fallbacks — the client pool marks a key exhausted on a quota error and rolls to the next.
+
+The app works as an ordinary web app in any browser. To exercise the agent tools you need a
 WebMCP-capable browser:
 
 - **ChatGPT's in-app browser** — native WebMCP support
 - **Chrome 149+** — enable the experimental WebMCP flag at `chrome://flags`
 
-A banner at the top of the page tells you which mode you're in. Chrome DevTools has a
-[WebMCP panel](https://developer.chrome.com/docs/devtools/application/webmcp) for
-inspecting registered tools.
+A banner at the top of the page shows which mode you're in. Chrome DevTools has a
+[WebMCP panel](https://developer.chrome.com/docs/devtools/application/webmcp) for inspecting
+registered tools.
 
-## Project layout
+## Architecture
 
 ```
 src/
-  types/webmcp.d.ts             Ambient types for document.modelContext
-  lib/webmcp/support.ts         Feature detection
-  lib/webmcp/use-webmcp-tool.ts React hook: registers one tool for a component's lifetime
-  lib/tasks-store.tsx           Shared state the UI and the tools both operate on
-  components/task-tools.tsx     ← add your tools here
-  components/task-board.tsx     Human UI
-  components/agent-status.tsx   "Agent tools active" banner
+  types/webmcp.d.ts              Ambient types for document.modelContext
+  lib/webmcp/use-webmcp-tool.ts  Hook: registers one tool for a component's lifetime
+  lib/webmcp/support.ts          Feature detection
+  lib/workspace-store.tsx        Shared state: topic, sources, notes, focus
+  lib/workspace-actions.ts       Operations the UI and the tools both call
+  lib/youtube/client.ts          Quota-rotating YouTube Data API pool
+  lib/youtube/search.ts          Video search + details
+  lib/youtube/transcript.ts      Timestamped captions
+  app/api/youtube/*              Route handlers (keys stay server-side)
+  components/research-tools.tsx  ← the agent-facing surface
+  components/workspace.tsx       Human UI
+  components/agent-status.tsx    "Agent tools active" banner
 ```
 
-### Adding a tool
+The important structural choice is `lib/workspace-actions.ts`: the human UI and the WebMCP
+tools call the *same* functions, so a click and a tool call are genuinely equivalent rather
+than two code paths that drift apart.
 
-```tsx
-useWebMcpTool<{ query?: string }>({
-  name: "search_tasks",
-  description: "Find tasks whose title contains the query.",
-  inputSchema: {
-    type: "object",
-    properties: { query: { type: "string" } },
-    required: ["query"],
-  },
-  execute: ({ query }) => {
-    if (!query) return "Provide a query.";
-    // ...
-    return "…a short factual string the agent can relay";
-  },
-});
-```
+`useWebMcpTool` keeps `execute` in a ref so tools always read fresh state without
+re-registering on every render (re-registering churns the agent's tool list), and ties
+registration to an `AbortController` so unmounting unregisters the tool.
 
-`useWebMcpTool` keeps `execute` in a ref, so tools always read fresh state without
-re-registering on every render (re-registering churns the agent's tool list). Registration
-is tied to an `AbortController`, so unmounting the component unregisters the tool.
+## Security notes
 
-## Writing safe tools
+Transcript text is untrusted third-party content, and page tools run on behalf of whoever
+is driving the agent — see Chrome's
+[security guide](https://developer.chrome.com/docs/ai/webmcp/secure-tools). This app:
 
-Page tools run on behalf of whoever is driving the agent, and page content can carry
-prompt injection — see Chrome's
-[security guide](https://developer.chrome.com/docs/ai/webmcp/secure-tools). The tools here
-follow three rules:
+1. **Validates every tool input in `execute`.** The model can send values outside the
+   declared `enum`, malformed timestamps, or absent required fields.
+2. **Returns transcript text as data, never as instruction.** No tool acts on content found
+   inside a transcript; `read_transcript` says so in its own description.
+3. **Caps transcript responses** at 12,000 characters so a long video can't flood the
+   agent's context.
+4. **Keeps API keys server-side.** Tools call this app's route handlers, never YouTube
+   directly.
+5. **Marks `remove_item` as destructive** and asks the agent to confirm before calling it.
 
-1. **Validate every input in `execute`.** The model can send anything, including values
-   outside your `enum`.
-2. **Never expose a capability the signed-in human doesn't already have.** Tools are not an
-   authorization bypass; enforce the same checks as your UI.
-3. **Mark destructive tools as needing confirmation** in the description, and keep them
-   narrow.
+## Known limitation
 
-## Deploying to Vercel
+Transcripts come from YouTube's caption endpoint via `youtube-transcript`, which is not an
+authenticated API. It works reliably from a local machine, but YouTube sometimes blocks
+datacenter IPs — so transcript fetches may fail on Vercel where search and video lookup
+(which use the official Data API) still succeed. The UI surfaces this as a per-source
+message rather than a hard failure. Verify on your deployment before recording the demo; if
+it's blocked, the fix is a proxy or an authenticated captions path.
+
+## Deploy
 
 ```bash
-npx vercel        # preview
-npx vercel --prod # production
+npx vercel                                     # preview
+npx vercel env add YOUTUBE_API_KEY production  # then set the key
+npx vercel --prod
 ```
-
-The live URL is what judges and agents will hit, so deploy early and keep it up.
-
-## Reference
-
-- [WebMCP specification](https://github.com/webmachinelearning/webmcp)
-- [Chrome WebMCP docs](https://developer.chrome.com/docs/ai/webmcp) ·
-  [imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
-- [Vercel's reference implementation](https://github.com/vercel/shop/pull/498)
 
 ## License
 

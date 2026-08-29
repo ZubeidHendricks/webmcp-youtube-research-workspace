@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "WebMCP Task Board",
+  title: "YouTube Research Workspace",
   description:
-    "A Next.js starter that exposes its interface to AI agents through the WebMCP browser API.",
+    "Research YouTube alongside an AI agent — shared sources, transcripts, and cited notes, powered by WebMCP.",
 };
 
 export default function RootLayout({
