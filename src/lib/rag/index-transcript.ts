@@ -42,26 +42,30 @@ export function chunkTranscript(
   segments: TranscriptSegment[],
 ): { seconds: number; timestamp: string; text: string }[] {
   const chunks: { seconds: number; timestamp: string; text: string }[] = [];
-  let buffer: TranscriptSegment[] = [];
 
-  const flush = () => {
-    if (buffer.length === 0) return;
-    const text = buffer.map((s) => s.text).join(" ").trim();
-    if (text) {
+  let start = 0;
+  while (start < segments.length) {
+    let end = start;
+    let text = "";
+    while (end < segments.length && text.length < TARGET_CHARS) {
+      text = text ? `${text} ${segments[end].text}` : segments[end].text;
+      end++;
+    }
+
+    const trimmed = text.trim();
+    if (trimmed) {
       chunks.push({
-        seconds: buffer[0].seconds,
-        timestamp: formatTimestamp(buffer[0].seconds),
-        text,
+        seconds: segments[start].seconds,
+        timestamp: formatTimestamp(segments[start].seconds),
+        text: trimmed,
       });
     }
-    buffer = buffer.slice(-OVERLAP_SEGMENTS);
-  };
 
-  for (const segment of segments) {
-    buffer.push(segment);
-    if (buffer.map((s) => s.text).join(" ").length >= TARGET_CHARS) flush();
+    if (end >= segments.length) break;
+    // Step forward, keeping a little overlap so a claim spanning a boundary is
+    // still retrievable. Always advance at least one segment.
+    start = Math.max(start + 1, end - OVERLAP_SEGMENTS);
   }
-  if (buffer.length > OVERLAP_SEGMENTS) flush();
 
   return chunks;
 }
