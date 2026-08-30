@@ -259,14 +259,14 @@ function ResultsPane({
   onCollect: (videoId: string) => void;
   collected: Set<string>;
 }) {
-  const { results, shared } = useWorkspace();
-  const topic = shared.topic;
+  const { results, lastQuery } = useWorkspace();
 
-  if (results.length === 0 && topic) {
+  // Only report a failed search if *this* browser actually ran one.
+  if (results.length === 0 && lastQuery) {
     return (
       <p className="text-sm text-foreground/50">
-        No results for &ldquo;{topic}&rdquo;. Try different wording, or untick &ldquo;prefer
-        videos with caption tracks&rdquo; to widen the search.
+        No results for &ldquo;{lastQuery}&rdquo;. Try different wording, or untick
+        &ldquo;prefer videos with caption tracks&rdquo; to widen the search.
       </p>
     );
   }
@@ -274,7 +274,8 @@ function ResultsPane({
   if (results.length === 0) {
     return (
       <p className="text-sm text-foreground/50">
-        Search a topic or paste a YouTube URL above — or ask your agent to find sources.
+        Search a topic or paste a YouTube URL above, send the research team, or ask your
+        agent to find sources. Anything collected appears under Sources.
       </p>
     );
   }

@@ -19,7 +19,7 @@ async function readJson<T>(response: Response): Promise<T> {
  * operation, and both are visible to everyone else in the workspace.
  */
 export function useWorkspaceActions() {
-  const { apply, readLive, identity, setResults, setBusy } = useWorkspace();
+  const { apply, readLive, identity, setResults, setLastQuery, setBusy } = useWorkspace();
 
   const runSearch = useCallback(
     async (
@@ -34,13 +34,14 @@ export function useWorkspaceActions() {
         );
         const body = await readJson<{ results: VideoResult[] }>(response);
         setResults(body.results);
+        setLastQuery(query);
         await apply({ type: "set_topic", topic: query });
         return body.results;
       } finally {
         setBusy(false);
       }
     },
-    [apply, setBusy, setResults],
+    [apply, setBusy, setResults, setLastQuery],
   );
 
   const collectSource = useCallback(

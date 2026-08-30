@@ -44,6 +44,15 @@ interface WorkspaceValue {
   setIdentity: (identity: Identity) => Promise<void>;
   results: VideoResult[];
   setResults: (results: VideoResult[]) => void;
+  /**
+   * The last search *this browser* ran, if any.
+   *
+   * Distinct from the shared `topic`: the topic is set by anyone in the workspace
+   * (the research team sets it too), so using it to decide "no results" told every
+   * other viewer their search had failed when they had never searched at all.
+   */
+  lastQuery: string | null;
+  setLastQuery: (query: string | null) => void;
   focus: Focus;
   setFocus: (focus: Focus) => void;
   busy: boolean;
@@ -121,6 +130,7 @@ export function WorkspaceProvider({
 }) {
   const [shared, setShared] = useState<WorkspaceState>(() => emptyWorkspace(workspaceId));
   const [results, setResults] = useState<VideoResult[]>([]);
+  const [lastQuery, setLastQuery] = useState<string | null>(null);
   const [focus, setFocus] = useState<Focus>({ kind: "results" });
   const [busy, setBusy] = useState(false);
   const [offline, setOffline] = useState<string | null>(null);
@@ -224,7 +234,9 @@ export function WorkspaceProvider({
       identity,
       setIdentity,
       results,
-      setResults,
+      setResults: (next: VideoResult[]) => setResults(next),
+      lastQuery,
+      setLastQuery,
       focus,
       setFocus,
       busy,
@@ -241,7 +253,7 @@ export function WorkspaceProvider({
         );
       },
     }),
-    [workspaceId, shared, identity, setIdentity, results, focus, busy, offline, apply],
+    [workspaceId, shared, identity, setIdentity, results, lastQuery, focus, busy, offline, apply],
   );
 
   return <WorkspaceContext value={value}>{children}</WorkspaceContext>;
