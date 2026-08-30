@@ -225,9 +225,13 @@ export function Workspace() {
             (activeSource ? (
               <SourcePane
                 source={activeSource}
-                onLoadTranscript={() =>
-                  void guard(() => loadTranscript(activeSource.videoId))
-                }
+                onLoadTranscript={() => {
+                  // A missing transcript is an expected outcome, not an app error:
+                  // it is already reported on the source itself, so don't also
+                  // raise the page-level error banner and say it twice.
+                  setError(null);
+                  void loadTranscript(activeSource.videoId).catch(() => {});
+                }}
                 onRemove={() => {
                   void guard(async () => {
                     await apply({ type: "remove_source", videoId: activeSource.videoId });
