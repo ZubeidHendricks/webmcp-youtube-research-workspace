@@ -58,7 +58,7 @@ The app works as an ordinary web app in any browser. To exercise the agent tools
 WebMCP-capable browser:
 
 - **ChatGPT's in-app browser** — native WebMCP support
-- **Chrome 149+** — enable the experimental WebMCP flag at `chrome://flags`
+- **Chrome 149+** — enable the flag at `chrome://flags/#enable-webmcp-testing`
 
 A banner at the top of the page shows which mode you're in. Chrome DevTools has a
 [WebMCP panel](https://developer.chrome.com/docs/devtools/application/webmcp) for inspecting
@@ -106,43 +106,49 @@ is driving the agent — see Chrome's
    directly.
 5. **Marks `remove_item` as destructive** and asks the agent to confirm before calling it.
 
-## Known limitation: transcripts in production
+## Transcripts: how the split works
 
-Transcripts come from YouTube's caption endpoint, not an authenticated API. They work
-reliably from a local machine and fail for almost every video on a deployed server.
+Transcripts come from YouTube's caption endpoint, not an authenticated API. They work from
+a local machine and fail for most videos on any deployed server.
 
-Diagnosed by fetching the YouTube watch page from a Vercel function and inspecting it:
+Diagnosed by fetching the YouTube watch page from inside a serverless function:
 
-| Stage | Local | Vercel |
+| Host | Watch page | `captionTracks` present |
 | --- | --- | --- |
-| Watch page fetch | 200 | 200 |
-| `captionTracks` present for an ASR-only video | yes | **no** |
-| `captionTracks` present for a video with uploaded captions | yes | yes |
-| Caption track body downloads | yes | empty for most |
+| Local machine | 1.1 MB | yes, for every video tested |
+| Vercel (`iad1`) | 1.1 MB | only for videos with publisher-uploaded captions |
+| Cloudflare Workers | 3 KB (block page) | never |
 
-**YouTube strips caption track metadata from watch pages served to datacenter IPs**, except
-for videos with publisher-uploaded caption tracks. Since most videos rely on auto-generated
-(ASR) captions, `read_transcript` fails for most videos in production. Search and video
-lookup are unaffected — they use the official Data API.
+**YouTube strips caption track metadata from watch pages served to datacenter IPs.** Most
+videos only have auto-generated (ASR) captions, so those become unreadable server-side.
+Search and video lookup are unaffected — they use the official Data API.
 
 Ruled out by testing, so you don't have to repeat it:
 
-- **InnerTube** (`youtubei.js`) — its `get_transcript` endpoint returns HTTP 400 regardless of IP.
+- **InnerTube** (`youtubei.js`) — `get_transcript` returns HTTP 400 regardless of IP.
 - **A consent cookie** (`CONSENT=YES+cb; SOCS=CAI`) on the watch page fetch — no effect.
 - **`videoCaption=closedCaption` search filter** — YouTube counts ASR tracks as closed
-  captions, so it does not select for readable videos. Of 12 videos sampled this way, 1 had
-  a readable transcript in production.
-- **Fetching captions from the browser instead** — `youtube.com/api/timedtext` does send
-  permissive CORS headers, but the caption track URL only exists in the watch page, which
-  does not, so the browser cannot discover it.
+  captions, so it does not select for readable videos.
+- **Fetching captions from the browser** — `youtube.com/api/timedtext` does send permissive
+  CORS headers, but the signed caption URL only exists in the watch page (no CORS) and the
+  InnerTube `player` endpoint rejects cross-origin preflight with 403. The legacy
+  unsigned `timedtext?v=…&lang=en` endpoint now returns an empty body.
+- **Another region** — Cloudflare is blocked harder than Vercel. (Vercel Hobby pins
+  functions to one region, so `preferredRegion` is ignored there.)
 
-Fixing it properly needs one of:
+### The design that follows from this
 
-- a residential/rotating proxy for caption fetches only
-- a third-party transcript API (Supadata, youtube-transcript.io, and similar)
+`read_transcript` is **best effort**, and nothing else depends on it. When it fails the tool
+tells the agent so explicitly and instructs it to read the video by its own means and record
+findings anyway — `cite_moment` only needs a video, a timestamp, and a quote, never a
+successful transcript fetch. The human has the same escape hatch: a failed transcript
+renders a manual "cite a moment" form.
 
-The UI surfaces a failure as a per-source message rather than a hard error, so the
-workspace stays usable when a transcript can't be fetched.
+This is a reasonable division of labour for an agent-native app rather than a workaround.
+The agent already has browsing; what it lacks is a place to put what it finds. This app is
+the place. The page contributes the workspace, the shared state, and the citation structure;
+the agent contributes reading it can do better anyway. Transcripts, where they load, are a
+bonus that saves the agent a round trip.
 
 ## Deploy
 
