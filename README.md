@@ -17,6 +17,30 @@ from [ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/you
 an existing stdio MCP server; this project moves that capability *into the page*, where the
 agent and the human share one artifact instead of the agent working alone in a chat window.
 
+## Shared workspaces
+
+Every workspace has a URL — `/w/<id>` — and the link is the invitation. Everyone who opens
+it, and every agent driving one of those browsers, works in the same sources and notes.
+Contributions carry their author, so the notes panel shows which agent or person filed
+what, and `read_workspace` shows an agent what the humans have been doing.
+
+Two agents in two browsers can genuinely work the same problem: one collecting and citing,
+another reading the same sources and filing counterpoints, while a person watches both
+land. Identity is per-tab, so a person and their agent appear separately; participants who
+stop checking in drop off the list after 90 seconds.
+
+State lives in Upstash Redis (provisioned through the Vercel Marketplace) behind
+`/api/workspace/[id]`, and browsers poll for changes every two seconds.
+
+### Why the storage is shaped the way it is
+
+The workspace is stored as separate Redis structures — a hash of sources, a list of notes,
+a hash of participants — rather than one JSON document. A single document with
+compare-and-set **lost 4 of 10 concurrent notes** in testing, because several agents writing
+at once is the normal case here, not an edge case. With `RPUSH` for notes and `HSETNX` for
+sources, 20 parallel notes from three agents all survive, and eight simultaneous collects of
+the same video collapse to one source.
+
 ## Why WebMCP fits
 
 Video research is slow for a person (transcripts are long) and blind for an agent (a chat
@@ -70,6 +94,8 @@ port of the old one.
 | `add_note` | Adds a freeform note — a synthesis, question, or next step |
 | `read_workspace` | Reads current topic, sources, and all notes (including the human's) |
 | `set_focus` | Changes what the researcher sees on screen |
+| `join_workspace` | Announces an agent under a name so its contributions are labelled |
+| `list_participants` | Shows who else — person or agent — is working here, and what they filed |
 | `remove_item` | Removes a source or note (destructive; confirmation requested) |
 
 ## Trying the tools without a WebMCP browser
