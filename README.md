@@ -30,6 +30,34 @@ both directions. Here the two halves share state:
 - It calls `set_focus` to put the relevant source on screen while it explains.
 - The researcher cites a moment themselves; the agent sees it on its next `read_workspace`.
 
+## Provenance: new work vs. prior work
+
+Everything in this repository was written during the Hackathon Submission Period. The repo
+was created 2026-08-29 and its full commit history is public and dated.
+
+Two server-side files **adapt** code from a pre-existing project of the author's,
+[ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server)
+(MIT), which is a stdio MCP server for Claude Desktop and contains no web app and no WebMCP:
+
+| File | Relationship to prior work |
+| --- | --- |
+| `src/lib/youtube/client.ts` | Adapted from that project's `src/services/youtube-client.ts` (quota-aware API key rotation) |
+| `src/lib/youtube/transcript.ts` | Adapted from that project's `src/services/transcript.ts` (caption fetching) |
+
+Everything else is new: the entire WebMCP layer, the workspace model, the shared actions
+layer, all eight tools, the UI, and the Next.js route handlers. The prior project exposes
+tools to a single desktop client over stdio; this project exposes a *page's own* interface
+to whatever agent is driving the browser, which is a different architecture rather than a
+port of the old one.
+
+## Third-party terms
+
+- **YouTube Data API v3** — used with a developer API key for search and video metadata, in
+  the manner the API is published for.
+- **Caption retrieval** (`youtube-transcript`) reads YouTube's caption endpoints directly
+  rather than through the Data API. It is best-effort and the app is fully functional
+  without it — see the transcript section below.
+
 ## Registered tools
 
 | Tool | What it does |

@@ -37,18 +37,17 @@ export function useWebMcpTool<Input = Record<string, unknown>>({
 
   useEffect(() => {
     if (!enabled) return;
-    const modelContext = document.modelContext;
-    if (typeof modelContext?.registerTool !== "function") return;
+    if (typeof document.modelContext?.registerTool !== "function") return;
 
     const controller = new AbortController();
 
-    void modelContext
+    void document.modelContext
       .registerTool(
         {
           name,
           description,
           inputSchema: JSON.parse(schemaKey) as WebMcpInputSchema,
-          execute: (input, context) =>
+          execute: async (input, context) =>
             executeRef.current(input as Input, context),
         },
         { signal: controller.signal },
