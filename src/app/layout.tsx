@@ -3,9 +3,9 @@ import "./globals.css";
 import { WebMcpSimulator } from "@/components/webmcp-simulator";
 
 export const metadata: Metadata = {
-  title: "YouTube Research Workspace",
+  title: "YouGo",
   description:
-    "Research YouTube alongside an AI agent — shared sources, transcripts, and cited notes, powered by WebMCP.",
+    "A shared research workspace where people and their agents collect video sources and build cited notes together, powered by WebMCP.",
 };
 
 export default function RootLayout({

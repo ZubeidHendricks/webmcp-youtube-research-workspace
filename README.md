@@ -1,7 +1,4 @@
-# YouTube Research Workspace
-
-> **Placeholder name.** The WebMCP Challenge rules prohibit AI-generated project names —
-> rename this before submitting.
+# YouGo
 
 A research workspace for YouTube that a person and an AI agent operate **together**. The
 page registers its own tools with the browser through
@@ -10,7 +7,7 @@ page registers its own tools with the browser through
 YouTube, read transcripts, and file cited notes into the same workspace the human is
 looking at — and can read back what the human did.
 
-**Live:** https://webmcp-youtube-research-workspace.vercel.app
+**Live:** https://yougo-workspace.vercel.app
 
 Built for [The WebMCP Challenge](https://webmcp.devpost.com/). The YouTube layer is adapted
 from [ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server),

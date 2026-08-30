@@ -1,6 +1,6 @@
 # Submission text
 
-Paste-ready answers for the Devpost submission form. Replace the project name once chosen.
+Paste-ready answers for the Devpost submission form, for **YouGo**.
 
 ---
 
