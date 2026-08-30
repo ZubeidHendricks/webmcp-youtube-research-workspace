@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { WebMcpSimulator } from "@/components/webmcp-simulator";
 
 export const metadata: Metadata = {
   title: "YouTube Research Workspace",
@@ -12,6 +13,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
+      <head>
+        <WebMcpSimulator />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );

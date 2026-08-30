@@ -323,7 +323,7 @@ function SourcePane({
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
             {source.transcriptError}
           </p>
-          <ManualCite onCite={onCite} />
+          <TranscriptFallback onCite={onCite} />
         </div>
       ) : (
         <button
@@ -338,52 +338,77 @@ function SourcePane({
   );
 }
 
-/** Lets a person cite a moment by hand when the transcript can't be fetched. */
-function ManualCite({
+/**
+ * Shown when a transcript can't be fetched server-side.
+ *
+ * The primary path is the agent: it reads the video and sends the lines back with
+ * `provide_transcript`, after which this pane renders a normal citable transcript.
+ * Typing quotes by hand is the fallback, not the offer, so it stays collapsed.
+ */
+function TranscriptFallback({
   onCite,
 }: {
   onCite: (seconds: number, timestamp: string, quote: string) => void;
 }) {
+  const [manual, setManual] = useState(false);
   const [at, setAt] = useState("");
   const [quote, setQuote] = useState("");
   const seconds = parseTimestamp(at);
 
   return (
-    <form
-      className="flex flex-col gap-2 rounded-md border border-black/10 p-3 dark:border-white/15"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (seconds === null || !quote.trim()) return;
-        onCite(seconds, formatTimestamp(seconds), quote.trim());
-        setAt("");
-        setQuote("");
-      }}
-    >
-      <p className="text-xs text-foreground/50">Cite a moment manually</p>
-      <div className="flex gap-2">
-        <input
-          className="w-24 rounded-md border border-black/15 bg-transparent px-2 py-1.5 font-mono text-sm outline-none focus:border-foreground/50 dark:border-white/20"
-          placeholder="3:12"
-          value={at}
-          onChange={(event) => setAt(event.target.value)}
-          aria-label="Timestamp"
-        />
-        <input
-          className="flex-1 rounded-md border border-black/15 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-foreground/50 dark:border-white/20"
-          placeholder="What was said…"
-          value={quote}
-          onChange={(event) => setQuote(event.target.value)}
-          aria-label="Quote"
-        />
-        <button
-          type="submit"
-          disabled={seconds === null || !quote.trim()}
-          className="rounded-md border border-black/15 px-3 py-1.5 text-sm transition-colors hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10"
-        >
-          Cite
-        </button>
+    <div className="flex flex-col gap-3">
+      <div className="rounded-md border border-black/10 px-3 py-2.5 text-sm dark:border-white/15">
+        <p className="font-medium">Ask your agent to read this one.</p>
+        <p className="mt-1 text-foreground/60">
+          It can watch the video and send the transcript back with{" "}
+          <code className="font-mono text-xs">provide_transcript</code> — the lines land here
+          and become citable, same as a fetched transcript.
+        </p>
       </div>
-    </form>
+
+      {manual ? (
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (seconds === null || !quote.trim()) return;
+            onCite(seconds, formatTimestamp(seconds), quote.trim());
+            setAt("");
+            setQuote("");
+          }}
+        >
+          <input
+            className="w-24 rounded-md border border-black/15 bg-transparent px-2 py-1.5 font-mono text-sm outline-none focus:border-foreground/50 dark:border-white/20"
+            placeholder="3:12"
+            value={at}
+            onChange={(event) => setAt(event.target.value)}
+            aria-label="Timestamp"
+          />
+          <input
+            className="flex-1 rounded-md border border-black/15 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-foreground/50 dark:border-white/20"
+            placeholder="What was said…"
+            value={quote}
+            onChange={(event) => setQuote(event.target.value)}
+            aria-label="Quote"
+          />
+          <button
+            type="submit"
+            disabled={seconds === null || !quote.trim()}
+            className="rounded-md border border-black/15 px-3 py-1.5 text-sm transition-colors hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10"
+          >
+            Cite
+          </button>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setManual(true)}
+          className="w-fit text-xs text-foreground/40 underline underline-offset-2 hover:text-foreground/70"
+        >
+          or cite a moment by hand
+        </button>
+      )}
+    </div>
   );
 }
 

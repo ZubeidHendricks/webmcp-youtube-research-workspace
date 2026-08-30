@@ -17,7 +17,7 @@ export function AgentStatus() {
 
   if (support === "unknown") return null;
 
-  const supported = support === "supported";
+  const supported = support === "supported" || support === "simulated";
 
   return (
     <div
@@ -34,7 +34,14 @@ export function AgentStatus() {
         }`}
       />
       <p>
-        {supported ? (
+        {support === "simulated" ? (
+          <>
+            <strong className="font-semibold">Simulated agent (testing).</strong> WebMCP is
+            stubbed in by <code className="font-mono text-xs">?agent-sim=1</code>, so the
+            tools are registered and callable from the console — but no real agent is
+            driving this page.
+          </>
+        ) : supported ? (
           <>
             <strong className="font-semibold">Agent tools active.</strong> This page has
             registered its

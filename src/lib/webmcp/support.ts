@@ -1,4 +1,4 @@
-export type WebMcpSupport = "unknown" | "supported" | "unsupported";
+export type WebMcpSupport = "unknown" | "supported" | "simulated" | "unsupported";
 
 /**
  * WebMCP is only present in agent-capable browsers (ChatGPT's in-app browser,
@@ -6,7 +6,8 @@ export type WebMcpSupport = "unknown" | "supported" | "unsupported";
  */
 export function detectWebMcpSupport(): WebMcpSupport {
   if (typeof document === "undefined") return "unknown";
-  return typeof document.modelContext?.registerTool === "function"
-    ? "supported"
-    : "unsupported";
+  if (typeof document.modelContext?.registerTool !== "function") return "unsupported";
+  return (document.modelContext as { __simulated?: boolean }).__simulated
+    ? "simulated"
+    : "supported";
 }
