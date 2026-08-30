@@ -14,18 +14,8 @@ function isActive(focus: Focus, kind: Focus["kind"], videoId?: string) {
 }
 
 export function Workspace() {
-  const {
-    topic,
-    results,
-    sources,
-    notes,
-    focus,
-    busy,
-    setFocus,
-    addNote,
-    removeNote,
-    removeSource,
-  } = useWorkspace();
+  const { shared, results, focus, busy, offline, identity, setFocus, apply } = useWorkspace();
+  const { topic, sources, notes, participants } = shared;
   const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
   const [draftQuery, setDraftQuery] = useState("");
   const [captionedOnly, setCaptionedOnly] = useState(true);
@@ -147,13 +137,24 @@ export function Workspace() {
           {focus.kind === "notes" && (
             <NotesPane
               notes={notes}
-              onRemove={removeNote}
+              onRemove={(id) => void guard(() => apply({ type: "remove_note", noteId: id }))}
               draft={draftNote}
               setDraft={setDraftNote}
               onSubmit={() => {
                 if (!draftNote.trim()) return;
-                addNote({ author: "you", text: draftNote.trim() });
+                const text = draftNote.trim();
                 setDraftNote("");
+                void guard(() =>
+                  apply({
+                    type: "add_note",
+                    note: {
+                      authorId: identity.id,
+                      authorLabel: identity.label,
+                      authorKind: identity.kind,
+                      text,
+                    },
+                  }),
+                );
               }}
             />
           )}
@@ -166,16 +167,25 @@ export function Workspace() {
                   void guard(() => loadTranscript(activeSource.videoId))
                 }
                 onRemove={() => {
-                  removeSource(activeSource.videoId);
-                  setFocus({ kind: "results" });
+                  void guard(async () => {
+                    await apply({ type: "remove_source", videoId: activeSource.videoId });
+                    setFocus({ kind: "results" });
+                  });
                 }}
                 onCite={(seconds, timestamp, quote) => {
-                  addNote({
-                    author: "you",
-                    text: "",
-                    anchor: { videoId: activeSource.videoId, seconds, timestamp, quote },
+                  void guard(async () => {
+                    await apply({
+                      type: "add_note",
+                      note: {
+                        authorId: identity.id,
+                        authorLabel: identity.label,
+                        authorKind: identity.kind,
+                        text: "",
+                        anchor: { videoId: activeSource.videoId, seconds, timestamp, quote },
+                      },
+                    });
+                    setFocus({ kind: "notes" });
                   });
-                  setFocus({ kind: "notes" });
                 }}
               />
             ) : (
@@ -184,9 +194,18 @@ export function Workspace() {
         </main>
       </div>
 
-      {topic && (
-        <p className="text-xs text-foreground/40">Current topic: {topic}</p>
-      )}
+      <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground/40">
+        {topic && <span>Topic: {topic}</span>}
+        <span>
+          In this workspace:{" "}
+          {participants.length === 0
+            ? "just you"
+            : participants
+                .map((p) => `${p.label}${p.id === identity.id ? " (you)" : ""}`)
+                .join(", ")}
+        </span>
+        {offline && <span className="text-amber-600 dark:text-amber-400">{offline}</span>}
+      </footer>
     </div>
   );
 }
@@ -206,7 +225,8 @@ function ResultsPane({
   onCollect: (videoId: string) => void;
   collected: Set<string>;
 }) {
-  const { results, topic } = useWorkspace();
+  const { results, shared } = useWorkspace();
+  const topic = shared.topic;
 
   if (results.length === 0 && topic) {
     return (
@@ -404,12 +424,12 @@ function NotesPane({
             <li key={note.id} className="flex gap-3 py-3">
               <span
                 className={`mt-0.5 h-fit shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                  note.author === "agent"
+                  note.authorKind === "agent"
                     ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300"
                     : "bg-black/5 text-foreground/50 dark:bg-white/10"
                 }`}
               >
-                {note.author}
+                {note.authorLabel}
               </span>
               <div className="min-w-0 flex-1 text-sm">
                 {note.anchor && (

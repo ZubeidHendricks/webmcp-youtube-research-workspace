@@ -30,18 +30,8 @@ function count(n: number, singular: string): string {
  * every input is validated before use.
  */
 export function ResearchTools() {
-  const {
-    topic,
-    results,
-    focus,
-    addNote,
-    removeNote,
-    removeSource,
-    setFocus,
-    setTranscript,
-    findSource,
-    readLive,
-  } = useWorkspace();
+  const { results, focus, setFocus, findSource, readLive, apply, identity, setIdentity } =
+    useWorkspace();
   const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
 
   useWebMcpTool<{ query?: string; limit?: number; include_uncaptioned?: boolean }>({
@@ -232,7 +222,12 @@ export function ResearchTools() {
       try {
         const source = await collectSource(videoId);
         parsed.sort((a, b) => a.seconds - b.seconds);
-        setTranscript(videoId, parsed);
+        await apply({
+          type: "set_transcript",
+          videoId,
+          segments: parsed,
+          from: identity.label,
+        });
         setFocus({ kind: "source", videoId });
         return `Added ${parsed.length} transcript lines to "${source.title}", covering ${parsed[0].timestamp}–${parsed[parsed.length - 1].timestamp}. They are on screen and citable now.`;
       } catch (error) {
@@ -266,18 +261,23 @@ export function ResearchTools() {
 
       try {
         const source = await collectSource(videoId);
-        const note = addNote({
-          author: "agent",
-          text: comment?.trim() || "",
-          anchor: {
-            videoId,
-            seconds,
-            timestamp: formatTimestamp(seconds),
-            quote: quote.trim(),
+        await apply({
+          type: "add_note",
+          note: {
+            authorId: identity.id,
+            authorLabel: identity.label,
+            authorKind: identity.kind,
+            text: comment?.trim() || "",
+            anchor: {
+              videoId,
+              seconds,
+              timestamp: formatTimestamp(seconds),
+              quote: quote.trim(),
+            },
           },
         });
         setFocus({ kind: "notes" });
-        return `Filed citation at ${note.anchor?.timestamp} of "${source.title}". ${count(readLive().notes.length, "note")} in the workspace.`;
+        return `Filed citation at ${formatTimestamp(seconds)} of "${source.title}". ${count(readLive().notes.length, "note")} in the workspace.`;
       } catch (error) {
         return `Could not file that citation: ${errorText(error)}`;
       }
@@ -293,14 +293,68 @@ export function ResearchTools() {
       properties: { text: { type: "string" } },
       required: ["text"],
     },
-    execute: ({ text }) => {
+    execute: async ({ text }) => {
       if (typeof text !== "string" || text.trim().length === 0) {
         return "Provide the note text.";
       }
       if (text.length > 2000) return "Note is too long (max 2000 characters).";
-      addNote({ author: "agent", text: text.trim() });
+      await apply({
+        type: "add_note",
+        note: {
+          authorId: identity.id,
+          authorLabel: identity.label,
+          authorKind: identity.kind,
+          text: text.trim(),
+        },
+      });
       setFocus({ kind: "notes" });
       return `Note added. ${count(readLive().notes.length, "note")} in the workspace.`;
+    },
+  });
+
+  useWebMcpTool<{ name?: string }>({
+    name: "join_workspace",
+    description:
+      "Announce yourself to this workspace under a name, so your contributions are labelled and the other participants can see you are here. Call this once at the start of a session, before doing research.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "How you want to appear, e.g. 'Claude' or 'Scout'.",
+        },
+      },
+      required: ["name"],
+    },
+    execute: async ({ name }) => {
+      if (typeof name !== "string" || name.trim().length === 0) {
+        return "Provide the name you want to appear under.";
+      }
+      const label = name.trim().slice(0, 40);
+      await setIdentity({ id: identity.id, label, kind: "agent" });
+      const others = readLive().participants.filter((p) => p.id !== identity.id);
+      return others.length === 0
+        ? `Joined as "${label}". Nobody else is here yet.`
+        : `Joined as "${label}". Also here: ${others.map((p) => `${p.label} (${p.kind})`).join(", ")}.`;
+    },
+  });
+
+  useWebMcpTool({
+    name: "list_participants",
+    description:
+      "List everyone working in this workspace — the people and any other agents — so you can see who filed what and avoid duplicating their work.",
+    inputSchema: { type: "object", properties: {} },
+    execute: () => {
+      const { participants, notes } = readLive();
+      if (participants.length === 0) return "No participants have announced themselves yet.";
+      return participants
+        .map((p) => {
+          const filed = notes.filter((note) => note.authorId === p.id).length;
+          return `- ${p.label} (${p.kind}) — ${count(filed, "note")}${
+            p.id === identity.id ? " — this is you" : ""
+          }`;
+        })
+        .join("\n");
     },
   });
 
@@ -310,8 +364,16 @@ export function ResearchTools() {
       "Read the current state of the workspace — topic, collected sources, and every note, including ones the researcher wrote themselves. Call this first to catch up on what the human has done.",
     inputSchema: { type: "object", properties: {} },
     execute: () => {
-      const { sources, notes } = readLive();
+      const { topic, sources, notes, participants } = readLive();
       const lines = [`Topic: ${topic || "(none set)"}`];
+
+      lines.push(
+        "",
+        `Participants (${participants.length}):`,
+        ...(participants.length === 0
+          ? ["  (just you)"]
+          : participants.map((p) => `  - ${p.label} (${p.kind})`)),
+      );
 
       lines.push(
         "",
@@ -333,10 +395,10 @@ export function ResearchTools() {
           ? ["  (none yet)"]
           : notes.map((note) =>
               note.anchor
-                ? `  - [${note.author}] "${note.anchor.quote}" @ ${note.anchor.timestamp} of ${note.anchor.videoId}${
+                ? `  - [${note.authorLabel}] "${note.anchor.quote}" @ ${note.anchor.timestamp} of ${note.anchor.videoId}${
                     note.text ? ` — ${note.text}` : ""
                   }`
-                : `  - [${note.author}] ${note.text}`,
+                : `  - [${note.authorLabel}] ${note.text}`,
             )),
       );
 
@@ -398,12 +460,12 @@ export function ResearchTools() {
       },
       required: ["kind", "target"],
     },
-    execute: ({ kind, target }) => {
+    execute: async ({ kind, target }) => {
       if (!target) return "Provide what to remove.";
       if (kind === "source") {
         const match = findSource(target);
         if (!match) return `No source matching "${target}".`;
-        removeSource(match.videoId);
+        await apply({ type: "remove_source", videoId: match.videoId });
         return `Removed source "${match.title}".`;
       }
       if (kind === "note") {
@@ -415,7 +477,7 @@ export function ResearchTools() {
             note.anchor?.quote.toLowerCase().includes(needle),
         );
         if (!match) return `No note matching "${target}".`;
-        removeNote(match.id);
+        await apply({ type: "remove_note", noteId: match.id });
         return "Note removed.";
       }
       return "kind must be 'source' or 'note'.";

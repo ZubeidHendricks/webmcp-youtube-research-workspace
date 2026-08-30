@@ -4,174 +4,216 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { TranscriptSegment, VideoResult } from "@/lib/youtube/types";
+import type { VideoResult } from "@/lib/youtube/types";
+import {
+  emptyWorkspace,
+  type Note,
+  type Participant,
+  type Source,
+  type WorkspaceOp,
+  type WorkspaceState,
+} from "@/lib/workspace/types";
 
-/** A video the researcher pulled into the workspace. */
-export interface Source extends VideoResult {
-  addedAt: number;
-  transcript?: TranscriptSegment[];
-  transcriptError?: string;
+export type { Note, Participant, Source };
+
+/** What the viewer is looking at. Per-browser, never shared. */
+export type Focus =
+  | { kind: "source"; videoId: string }
+  | { kind: "notes" }
+  | { kind: "results" };
+
+export interface Identity {
+  id: string;
+  label: string;
+  kind: "human" | "agent";
+}
+
+interface WorkspaceValue {
+  shared: WorkspaceState;
+  /** Readable synchronously right after a mutation — tools chain calls faster than React renders. */
+  readLive: () => WorkspaceState;
+  identity: Identity;
+  setIdentity: (identity: Identity) => Promise<void>;
+  results: VideoResult[];
+  setResults: (results: VideoResult[]) => void;
+  focus: Focus;
+  setFocus: (focus: Focus) => void;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  offline: string | null;
+  apply: (op: WorkspaceOp) => Promise<WorkspaceState>;
+  findSource: (query: string) => Source | undefined;
 }
 
 /**
- * A note is either freeform, or anchored to a moment in a source — the anchored
- * kind is what makes the workspace worth building together: the agent can drop a
- * citation the human can click straight through to.
+ * Identity lives outside React so it can be read during render.
+ *
+ * It is per-browser and persisted, so a reload keeps your notes attributed to you
+ * and an agent that renamed itself stays renamed.
  */
-export interface Note {
-  id: string;
-  text: string;
-  createdAt: number;
-  author: "you" | "agent";
-  anchor?: { videoId: string; seconds: number; timestamp: string; quote: string };
+const identityCache = new Map<string, Identity>();
+const identityListeners = new Set<() => void>();
+const SERVER_IDENTITY: Identity = { id: "pending", label: "You", kind: "human" };
+
+function identityKey(workspaceId: string) {
+  return `webmcp-identity:${workspaceId}`;
 }
 
-export type Focus = { kind: "source"; videoId: string } | { kind: "notes" } | { kind: "results" };
+function loadIdentity(workspaceId: string): Identity {
+  const cached = identityCache.get(workspaceId);
+  if (cached) return cached;
 
-interface WorkspaceValue {
-  /** Current sources/notes readable synchronously after a mutation — for tools. */
-  readLive: () => { sources: Source[]; notes: Note[] };
-  topic: string;
-  results: VideoResult[];
-  sources: Source[];
-  notes: Note[];
-  focus: Focus;
-  busy: boolean;
-  setTopic: (topic: string) => void;
-  setBusy: (busy: boolean) => void;
-  setResults: (results: VideoResult[]) => void;
-  addSource: (video: VideoResult) => Source;
-  removeSource: (videoId: string) => Source | undefined;
-  setTranscript: (videoId: string, segments: TranscriptSegment[]) => void;
-  setTranscriptError: (videoId: string, message: string) => void;
-  addNote: (note: Omit<Note, "id" | "createdAt">) => Note;
-  removeNote: (id: string) => Note | undefined;
-  setFocus: (focus: Focus) => void;
-  findSource: (query: string) => Source | undefined;
+  let identity: Identity | null = null;
+  try {
+    const raw = window.localStorage.getItem(identityKey(workspaceId));
+    if (raw) identity = JSON.parse(raw) as Identity;
+  } catch {
+    // private mode or blocked storage
+  }
+  const resolved = identity ?? { id: crypto.randomUUID(), label: "You", kind: "human" };
+  identityCache.set(workspaceId, resolved);
+  try {
+    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(resolved));
+  } catch {
+    // non-fatal
+  }
+  return resolved;
+}
+
+function storeIdentity(workspaceId: string, identity: Identity) {
+  identityCache.set(workspaceId, identity);
+  try {
+    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(identity));
+  } catch {
+    // non-fatal
+  }
+  identityListeners.forEach((listener) => listener());
+}
+
+function subscribeIdentity(listener: () => void) {
+  identityListeners.add(listener);
+  return () => identityListeners.delete(listener);
 }
 
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [topic, setTopic] = useState("");
+const POLL_MS = 2000;
+
+export function WorkspaceProvider({
+  workspaceId,
+  children,
+}: {
+  workspaceId: string;
+  children: ReactNode;
+}) {
+  const [shared, setShared] = useState<WorkspaceState>(() => emptyWorkspace(workspaceId));
   const [results, setResults] = useState<VideoResult[]>([]);
-  const [sources, setSources] = useState<Source[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
   const [focus, setFocus] = useState<Focus>({ kind: "results" });
   const [busy, setBusy] = useState(false);
-
-  /**
-   * Mirrors of the collections above, updated synchronously by every mutation.
-   *
-   * React state is not readable until the next render, but an agent can call
-   * several tools in quick succession — `cite_moment` then `read_workspace`
-   * would otherwise report the workspace as it looked before the citation.
-   * Tools read these; rendering reads the state.
-   */
-  const sourcesRef = useRef(sources);
-  const notesRef = useRef(notes);
-
-  const commitSources = useCallback((next: Source[]) => {
-    sourcesRef.current = next;
-    setSources(next);
-  }, []);
-
-  const commitNotes = useCallback((next: Note[]) => {
-    notesRef.current = next;
-    setNotes(next);
-  }, []);
-
-  const addSource = useCallback(
-    (video: VideoResult) => {
-      const existing = sourcesRef.current.find((item) => item.videoId === video.videoId);
-      if (existing) return existing;
-      const source: Source = { ...video, addedAt: Date.now() };
-      commitSources([...sourcesRef.current, source]);
-      return source;
-    },
-    [commitSources],
+  const [offline, setOffline] = useState<string | null>(null);
+  const identity = useSyncExternalStore(
+    subscribeIdentity,
+    () => loadIdentity(workspaceId),
+    () => SERVER_IDENTITY,
   );
 
-  const removeSource = useCallback(
-    (videoId: string) => {
-      const removed = sourcesRef.current.find((item) => item.videoId === videoId);
-      if (removed) {
-        commitSources(sourcesRef.current.filter((item) => item.videoId !== videoId));
+  const sharedRef = useRef(shared);
+
+  const commit = useCallback((next: WorkspaceState) => {
+    // Ignore stale responses that lost a race with a newer poll or write.
+    if (next.version < sharedRef.current.version) return;
+    sharedRef.current = next;
+    setShared(next);
+  }, []);
+
+  const apply = useCallback(
+    async (op: WorkspaceOp) => {
+      const response = await fetch(`/api/workspace/${workspaceId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(op),
+      });
+      const body = (await response.json()) as WorkspaceState & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not apply the change.");
+      commit(body);
+      setOffline(null);
+      return body;
+    },
+    [workspaceId, commit],
+  );
+
+  // Announce this browser to the workspace once.
+  useEffect(() => {
+    void fetch(`/api/workspace/${workspaceId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "join",
+        participant: loadIdentity(workspaceId),
+      } satisfies WorkspaceOp),
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state: WorkspaceState | null) => state && commit(state))
+      .catch(() => setOffline("Working offline — changes are not being shared."));
+  }, [workspaceId, commit]);
+
+  // Poll for what everyone else is doing.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tick = async () => {
+      try {
+        const response = await fetch(`/api/workspace/${workspaceId}`, { cache: "no-store" });
+        if (response.ok && !cancelled) {
+          commit((await response.json()) as WorkspaceState);
+          setOffline(null);
+        }
+      } catch {
+        if (!cancelled) setOffline("Reconnecting…");
       }
-      return removed;
-    },
-    [commitSources],
-  );
+      if (!cancelled) timer = setTimeout(tick, POLL_MS);
+    };
 
-  const setTranscript = useCallback(
-    (videoId: string, segments: TranscriptSegment[]) => {
-      commitSources(
-        sourcesRef.current.map((item) =>
-          item.videoId === videoId
-            ? { ...item, transcript: segments, transcriptError: undefined }
-            : item,
-        ),
-      );
-    },
-    [commitSources],
-  );
+    timer = setTimeout(tick, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [workspaceId, commit]);
 
-  const setTranscriptError = useCallback(
-    (videoId: string, message: string) => {
-      commitSources(
-        sourcesRef.current.map((item) =>
-          item.videoId === videoId ? { ...item, transcriptError: message } : item,
-        ),
-      );
+  const setIdentity = useCallback(
+    async (next: Identity) => {
+      storeIdentity(workspaceId, next);
+      await apply({ type: "join", participant: next });
     },
-    [commitSources],
-  );
-
-  const addNote = useCallback(
-    (note: Omit<Note, "id" | "createdAt">) => {
-      const created: Note = { ...note, id: crypto.randomUUID(), createdAt: Date.now() };
-      commitNotes([...notesRef.current, created]);
-      return created;
-    },
-    [commitNotes],
-  );
-
-  const removeNote = useCallback(
-    (id: string) => {
-      const removed = notesRef.current.find((note) => note.id === id);
-      if (removed) commitNotes(notesRef.current.filter((note) => note.id !== id));
-      return removed;
-    },
-    [commitNotes],
+    [apply, workspaceId],
   );
 
   const value = useMemo<WorkspaceValue>(
     () => ({
-      topic,
+      shared,
+      readLive: () => sharedRef.current,
+      identity,
+      setIdentity,
       results,
-      sources,
-      notes,
-      focus,
-      busy,
-      setTopic,
-      setBusy,
       setResults,
-      addSource,
-      removeSource,
-      setTranscript,
-      setTranscriptError,
-      addNote,
-      removeNote,
+      focus,
       setFocus,
-      readLive: () => ({ sources: sourcesRef.current, notes: notesRef.current }),
+      busy,
+      setBusy,
+      offline,
+      apply,
       findSource: (query) => {
         const needle = query.trim().toLowerCase();
-        const live = sourcesRef.current;
+        const live = sharedRef.current.sources;
         return (
           live.find((source) => source.videoId === query.trim()) ??
           live.find((source) => source.title.toLowerCase() === needle) ??
@@ -179,20 +221,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         );
       },
     }),
-    [
-      topic,
-      results,
-      sources,
-      notes,
-      focus,
-      busy,
-      addSource,
-      removeSource,
-      setTranscript,
-      setTranscriptError,
-      addNote,
-      removeNote,
-    ],
+    [shared, identity, setIdentity, results, focus, busy, offline, apply],
   );
 
   return <WorkspaceContext value={value}>{children}</WorkspaceContext>;

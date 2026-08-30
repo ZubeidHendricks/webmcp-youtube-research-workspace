@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback } from "react";
-import { useWorkspace, type Source } from "@/lib/workspace-store";
+import { useWorkspace } from "@/lib/workspace-store";
+import type { Source } from "@/lib/workspace/types";
 import { extractVideoId, type TranscriptSegment, type VideoResult } from "@/lib/youtube/types";
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -11,20 +12,14 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 /**
- * The operations the human UI and the WebMCP tools share. Keeping them in one
- * place is what makes an agent action and a click genuinely equivalent — both
- * paths hit the same fetch, the same state, the same rendering.
+ * The operations the human UI and the WebMCP tools share.
+ *
+ * Every mutation goes through `apply`, which writes to the shared workspace and
+ * returns the authoritative state — so a click and a tool call are the same
+ * operation, and both are visible to everyone else in the workspace.
  */
 export function useWorkspaceActions() {
-  const {
-    setTopic,
-    setResults,
-    setBusy,
-    addSource,
-    setTranscript,
-    setTranscriptError,
-    sources,
-  } = useWorkspace();
+  const { apply, readLive, identity, setResults, setBusy } = useWorkspace();
 
   const runSearch = useCallback(
     async (
@@ -38,57 +33,60 @@ export function useWorkspaceActions() {
             (captionedOnly ? "" : "&captioned=any"),
         );
         const body = await readJson<{ results: VideoResult[] }>(response);
-        setTopic(query);
         setResults(body.results);
+        await apply({ type: "set_topic", topic: query });
         return body.results;
       } finally {
         setBusy(false);
       }
     },
-    [setBusy, setResults, setTopic],
+    [apply, setBusy, setResults],
   );
 
   const collectSource = useCallback(
     async (videoId: string): Promise<Source> => {
-      const existing = sources.find((source) => source.videoId === videoId);
+      const existing = readLive().sources.find((source) => source.videoId === videoId);
       if (existing) return existing;
 
-      const response = await fetch(
-        `/api/youtube/video?videoId=${encodeURIComponent(videoId)}`,
+      const video = await readJson<VideoResult>(
+        await fetch(`/api/youtube/video?videoId=${encodeURIComponent(videoId)}`),
       );
-      const video = await readJson<VideoResult>(response);
-      return addSource(video);
+      const state = await apply({
+        type: "add_source",
+        source: { ...video, addedBy: identity.label },
+      });
+      return (
+        state.sources.find((source) => source.videoId === videoId) ?? {
+          ...video,
+          addedAt: Date.now(),
+          addedBy: identity.label,
+        }
+      );
     },
-    [addSource, sources],
+    [apply, identity.label, readLive],
   );
 
   const loadTranscript = useCallback(
     async (videoId: string): Promise<TranscriptSegment[]> => {
-      const cached = sources.find((source) => source.videoId === videoId)?.transcript;
+      const cached = readLive().sources.find((s) => s.videoId === videoId)?.transcript;
       if (cached) return cached;
 
       try {
-        const response = await fetch(
-          `/api/youtube/transcript?videoId=${encodeURIComponent(videoId)}`,
+        const body = await readJson<{ segments: TranscriptSegment[] }>(
+          await fetch(`/api/youtube/transcript?videoId=${encodeURIComponent(videoId)}`),
         );
-        const body = await readJson<{ segments: TranscriptSegment[] }>(response);
-        setTranscript(videoId, body.segments);
+        await apply({ type: "set_transcript", videoId, segments: body.segments });
         return body.segments;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Transcript failed.";
-        setTranscriptError(videoId, message);
+        await apply({ type: "set_transcript_error", videoId, message });
         throw error;
       }
     },
-    [sources, setTranscript, setTranscriptError],
+    [apply, readLive],
   );
 
-  /**
-   * What the search box (and the search tool) actually do with free-form input.
-   *
-   * Pasting a video URL is a request to work with *that* video, not to search
-   * for its URL string — so it collects the source instead of searching.
-   */
+  /** Pasting a video URL means "work with that video", not "search for this string". */
   const searchOrCollect = useCallback(
     async (
       input: string,
