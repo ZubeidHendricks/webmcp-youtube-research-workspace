@@ -7,7 +7,7 @@ page registers its own tools with the browser through
 YouTube, read transcripts, and file cited notes into the same workspace the human is
 looking at — and can read back what the human did.
 
-**Live:** https://yougo-workspace.vercel.app
+**Live:** https://yougo.k53.tech
 
 Built for [The WebMCP Challenge](https://webmcp.devpost.com/). The YouTube layer is adapted
 from [ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server),
