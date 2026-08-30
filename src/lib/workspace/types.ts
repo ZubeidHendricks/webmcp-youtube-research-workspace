@@ -49,6 +49,18 @@ export type WorkspaceOp =
   | { type: "add_note"; note: Omit<Note, "id" | "createdAt"> }
   | { type: "remove_note"; noteId: string };
 
+/**
+ * A participant that hasn't checked in recently has stopped working here.
+ *
+ * They stay listed rather than disappearing: a team agent that finished its run
+ * still did the work, and the researcher needs to see who contributed what.
+ */
+export const PRESENCE_TIMEOUT_MS = 90_000;
+
+export function isActive(participant: Participant, now = Date.now()): boolean {
+  return now - participant.lastSeen < PRESENCE_TIMEOUT_MS;
+}
+
 export function emptyWorkspace(id: string): WorkspaceState {
   return {
     id,

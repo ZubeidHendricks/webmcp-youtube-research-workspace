@@ -31,8 +31,7 @@ function redis(): Redis {
 
 /** Demo artifacts, not archives — a week after the last write. */
 const TTL_SECONDS = 60 * 60 * 24 * 7;
-/** A participant that hasn't checked in for this long is treated as gone. */
-const PARTICIPANT_TIMEOUT_MS = 90_000;
+
 
 const keys = (id: string) => ({
   meta: `ws:${id}:meta`,
@@ -95,8 +94,6 @@ export async function readWorkspace(id: string): Promise<WorkspaceState> {
     participants: Object.values(participants ?? {})
       .map((value) => parse<Participant>(value))
       .filter((p): p is Participant => p !== null)
-      // Drop tabs that stopped checking in, so the list reflects who is actually here.
-      .filter((p) => Date.now() - p.lastSeen < PARTICIPANT_TIMEOUT_MS)
       .sort((a, b) => a.joinedAt - b.joinedAt),
     version: Number(version ?? 0),
     updatedAt: Date.now(),

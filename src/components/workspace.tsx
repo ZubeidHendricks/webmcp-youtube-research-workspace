@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useWorkspace, type Focus, type Note, type Source } from "@/lib/workspace-store";
 import { useWorkspaceActions } from "@/lib/workspace-actions";
 import { useResearchTeam } from "@/lib/team-client";
+import { isActive as isParticipantActive } from "@/lib/workspace/types";
 
 function watchUrl(videoId: string, seconds?: number) {
   return `https://www.youtube.com/watch?v=${videoId}${seconds ? `&t=${seconds}s` : ""}`;
@@ -225,9 +226,17 @@ export function Workspace() {
           In this workspace:{" "}
           {participants.length === 0
             ? "just you"
-            : participants
-                .map((p) => `${p.label}${p.id === identity.id ? " (you)" : ""}`)
-                .join(", ")}
+            : participants.map((p, index) => (
+                <span
+                  key={p.id}
+                  className={isParticipantActive(p) ? undefined : "opacity-50"}
+                  title={isParticipantActive(p) ? "here now" : "finished — no longer active"}
+                >
+                  {index > 0 && ", "}
+                  {p.label}
+                  {p.id === identity.id && " (you)"}
+                </span>
+              ))}
         </span>
         {offline && <span className="text-amber-600 dark:text-amber-400">{offline}</span>}
       </footer>

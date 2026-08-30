@@ -2,6 +2,7 @@
 
 import { useWebMcpTool } from "@/lib/webmcp/use-webmcp-tool";
 import { useWorkspace } from "@/lib/workspace-store";
+import { isActive } from "@/lib/workspace/types";
 import { useWorkspaceActions } from "@/lib/workspace-actions";
 import { useResearchTeam } from "@/lib/team-client";
 import { extractVideoId, formatTimestamp, parseTimestamp } from "@/lib/youtube/types";
@@ -376,7 +377,7 @@ export function ResearchTools() {
         .map((p) => {
           const filed = notes.filter((note) => note.authorId === p.id).length;
           return `- ${p.label} (${p.kind}) — ${count(filed, "note")}${
-            p.id === identity.id ? " — this is you" : ""
+            p.id === identity.id ? " — this is you" : isActive(p) ? "" : " — finished"
           }`;
         })
         .join("\n");
@@ -397,7 +398,9 @@ export function ResearchTools() {
         `Participants (${participants.length}):`,
         ...(participants.length === 0
           ? ["  (just you)"]
-          : participants.map((p) => `  - ${p.label} (${p.kind})`)),
+          : participants.map(
+              (p) => `  - ${p.label} (${p.kind})${isActive(p) ? "" : " — finished, no longer active"}`,
+            )),
       );
 
       lines.push(
