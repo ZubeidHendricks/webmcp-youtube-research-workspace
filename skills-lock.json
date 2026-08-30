@@ -12,6 +12,12 @@
       "sourceType": "github",
       "skillPath": "skills/upstash-redis-js/SKILL.md",
       "computedHash": "11ce4f21aae0a319cff7417b76ad56323a347e42b72193543c419751546bdefc"
+    },
+    "upstash-vector-js": {
+      "source": "upstash/skills",
+      "sourceType": "github",
+      "skillPath": "skills/upstash-vector-js/SKILL.md",
+      "computedHash": "75e5994dda72af57cba41a234efa29019e369028201c5079795cdd09d9a22972"
     }
   }
 }

@@ -1,0 +1,124 @@
+import "server-only";
+import { Index } from "@upstash/vector";
+import { formatTimestamp, type TranscriptSegment } from "@/lib/youtube/types";
+
+/**
+ * Transcript retrieval.
+ *
+ * Upstash Vector with a hosted embedding model, so passages are embedded on
+ * upsert and the question is embedded on query — no separate embedding provider.
+ * Vectors are namespaced per workspace, so one research session never retrieves
+ * another's sources.
+ */
+let index: Index | null = null;
+
+function vectorIndex(): Index {
+  if (!index) {
+    const url = process.env.UPSTASH_VECTOR_REST_URL;
+    const token = process.env.UPSTASH_VECTOR_REST_TOKEN;
+    if (!url || !token) throw new Error("Vector search is not configured.");
+    index = new Index({ url, token });
+  }
+  return index;
+}
+
+export interface Passage {
+  videoId: string;
+  title: string;
+  seconds: number;
+  timestamp: string;
+  text: string;
+}
+
+/**
+ * Caption lines are a few words each — far too small to answer a question
+ * against. Merge them into overlapping windows of roughly a paragraph, keeping
+ * the first line's start time so a citation still points at the right moment.
+ */
+const TARGET_CHARS = 700;
+const OVERLAP_SEGMENTS = 2;
+
+export function chunkTranscript(
+  segments: TranscriptSegment[],
+): { seconds: number; timestamp: string; text: string }[] {
+  const chunks: { seconds: number; timestamp: string; text: string }[] = [];
+  let buffer: TranscriptSegment[] = [];
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    const text = buffer.map((s) => s.text).join(" ").trim();
+    if (text) {
+      chunks.push({
+        seconds: buffer[0].seconds,
+        timestamp: formatTimestamp(buffer[0].seconds),
+        text,
+      });
+    }
+    buffer = buffer.slice(-OVERLAP_SEGMENTS);
+  };
+
+  for (const segment of segments) {
+    buffer.push(segment);
+    if (buffer.map((s) => s.text).join(" ").length >= TARGET_CHARS) flush();
+  }
+  if (buffer.length > OVERLAP_SEGMENTS) flush();
+
+  return chunks;
+}
+
+function escape(value: string) {
+  return value.replace(/['"\\]/g, "");
+}
+
+export async function indexTranscript(
+  workspaceId: string,
+  videoId: string,
+  title: string,
+  segments: TranscriptSegment[],
+): Promise<number> {
+  const passages = chunkTranscript(segments);
+  if (passages.length === 0) return 0;
+
+  const namespace = vectorIndex().namespace(workspaceId);
+  // Re-indexing a source replaces its passages rather than duplicating them.
+  await namespace.delete({ filter: `videoId = '${escape(videoId)}'` }).catch(() => {});
+
+  const vectors = passages.map((passage, position) => ({
+    id: `${workspaceId}:${videoId}:${position}`,
+    data: passage.text,
+    metadata: {
+      videoId,
+      title,
+      seconds: passage.seconds,
+      timestamp: passage.timestamp,
+      text: passage.text,
+    },
+  }));
+
+  for (let i = 0; i < vectors.length; i += 50) {
+    await namespace.upsert(vectors.slice(i, i + 50));
+  }
+  return vectors.length;
+}
+
+export async function searchPassages(
+  workspaceId: string,
+  question: string,
+  topK = 8,
+): Promise<Passage[]> {
+  const results = await vectorIndex()
+    .namespace(workspaceId)
+    .query({ data: question, topK, includeMetadata: true });
+
+  return (results ?? []).flatMap((result) => {
+    const meta = result.metadata as unknown as Passage | undefined;
+    return meta?.text ? [meta] : [];
+  });
+}
+
+export async function clearSourceFromIndex(workspaceId: string, videoId: string) {
+  await vectorIndex()
+    .namespace(workspaceId)
+    .delete({ filter: `videoId = '${escape(videoId)}'` })
+    .catch(() => {});
+}

@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
+import { useSourceQnA } from "@/lib/rag-client";
 import type { Source } from "@/lib/workspace/types";
 import { extractVideoId, type TranscriptSegment, type VideoResult } from "@/lib/youtube/types";
 
@@ -20,6 +21,7 @@ async function readJson<T>(response: Response): Promise<T> {
  */
 export function useWorkspaceActions() {
   const { apply, readLive, identity, setResults, setLastQuery, setBusy } = useWorkspace();
+  const { indexSource } = useSourceQnA();
 
   const runSearch = useCallback(
     async (
@@ -77,6 +79,7 @@ export function useWorkspaceActions() {
           await fetch(`/api/youtube/transcript?videoId=${encodeURIComponent(videoId)}`),
         );
         await apply({ type: "set_transcript", videoId, segments: body.segments });
+        indexSource(videoId);
         return body.segments;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Transcript failed.";
@@ -84,7 +87,7 @@ export function useWorkspaceActions() {
         throw error;
       }
     },
-    [apply, readLive],
+    [apply, readLive, indexSource],
   );
 
   /** Pasting a video URL means "work with that video", not "search for this string". */

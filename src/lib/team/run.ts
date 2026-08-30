@@ -2,6 +2,7 @@ import "server-only";
 import { createGroq } from "@ai-sdk/groq";
 import { generateObject } from "ai";
 import { z } from "zod";
+import { indexTranscript } from "@/lib/rag/index-transcript";
 import { mutateWorkspace, readWorkspace } from "@/lib/workspace/server";
 import { searchVideos } from "@/lib/youtube/search";
 import { getTranscript } from "@/lib/youtube/transcript";
@@ -121,6 +122,9 @@ Choose at most ${MAX_SOURCES} to research. Return their exact videoIds.`,
         segments: transcript.segments,
         from: TEAM.reader.label,
       });
+      await indexTranscript(workspaceId, video.videoId, video.title, transcript.segments).catch(
+        () => {},
+      );
       transcriptText = transcript.segments
         .map((segment) => `[${segment.seconds}] ${segment.text}`)
         .join("\n")

@@ -5,6 +5,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { isActive } from "@/lib/workspace/types";
 import { useWorkspaceActions } from "@/lib/workspace-actions";
 import { useResearchTeam } from "@/lib/team-client";
+import { useSourceQnA } from "@/lib/rag-client";
 import { extractVideoId, formatTimestamp, parseTimestamp } from "@/lib/youtube/types";
 
 /** Transcripts are long; never hand the agent more than this in one call. */
@@ -36,6 +37,7 @@ export function ResearchTools() {
     useWorkspace();
   const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
   const { dispatchTeam } = useResearchTeam();
+  const { askAndRecord, indexSource } = useSourceQnA();
 
   useWebMcpTool<{ query?: string; limit?: number; include_uncaptioned?: boolean }>({
     name: "search_videos",
@@ -231,8 +233,9 @@ export function ResearchTools() {
           segments: parsed,
           from: identity.label,
         });
+        indexSource(videoId);
         setFocus({ kind: "source", videoId });
-        return `Added ${parsed.length} transcript lines to "${source.title}", covering ${parsed[0].timestamp}–${parsed[parsed.length - 1].timestamp}. They are on screen and citable now.`;
+        return `Added ${parsed.length} transcript lines to "${source.title}", covering ${parsed[0].timestamp}–${parsed[parsed.length - 1].timestamp}. They are on screen, citable, and searchable with ask_sources.`;
       } catch (error) {
         return `Could not attach that transcript: ${errorText(error)}`;
       }
@@ -312,6 +315,40 @@ export function ResearchTools() {
       });
       setFocus({ kind: "notes" });
       return `Note added. ${count(readLive().notes.length, "note")} in the workspace.`;
+    },
+  });
+
+  useWebMcpTool<{ question?: string }>({
+    name: "ask_sources",
+    description:
+      "Ask a question and get it answered from the transcripts collected in this workspace, with quoted evidence. Retrieval runs across every indexed source at once, so this is the way to compare what several videos say — 'where do these sources disagree about X'. The answer and its supporting quotes are filed into the notes for the researcher. Only searches transcripts that are actually loaded; if none are, it says so.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "What you want to know from the sources." },
+      },
+      required: ["question"],
+    },
+    execute: async ({ question }) => {
+      if (typeof question !== "string" || question.trim().length === 0) {
+        return "Provide a question to ask the sources.";
+      }
+      try {
+        const result = await askAndRecord(question.trim());
+        setFocus({ kind: "notes" });
+        if (result.passagesConsidered === 0) return result.answer;
+        return [
+          result.answer,
+          "",
+          ...result.citations.map(
+            (citation) => `- "${citation.quote}" — ${citation.title} @ ${citation.timestamp}`,
+          ),
+          "",
+          `Answered from ${count(result.passagesConsidered, "passage")}; the answer and its citations are now in the notes.`,
+        ].join("\n");
+      } catch (error) {
+        return `Could not answer from the sources: ${errorText(error)}`;
+      }
     },
   });
 

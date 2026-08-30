@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useWorkspace, type Focus, type Note, type Source } from "@/lib/workspace-store";
 import { useWorkspaceActions } from "@/lib/workspace-actions";
 import { useResearchTeam } from "@/lib/team-client";
+import { useSourceQnA } from "@/lib/rag-client";
 import { isActive as isParticipantActive } from "@/lib/workspace/types";
 
 function watchUrl(videoId: string, seconds?: number) {
@@ -20,7 +21,10 @@ export function Workspace() {
   const { topic, sources, notes, participants } = shared;
   const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
   const { dispatchTeam } = useResearchTeam();
+  const { askAndRecord } = useSourceQnA();
   const [dispatching, setDispatching] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
   const [draftQuery, setDraftQuery] = useState("");
   const [captionedOnly, setCaptionedOnly] = useState(true);
   const [draftNote, setDraftNote] = useState("");
@@ -110,6 +114,38 @@ export function Workspace() {
         <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-900 dark:text-red-200">
           {error}
         </p>
+      )}
+
+      {sources.some((source) => source.transcript?.length) && (
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const q = question.trim();
+            if (!q || asking) return;
+            setAsking(true);
+            setQuestion("");
+            void guard(async () => {
+              await askAndRecord(q);
+              setFocus({ kind: "notes" });
+            }).then(() => setAsking(false));
+          }}
+        >
+          <input
+            className="flex-1 rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/50 dark:border-white/20"
+            placeholder="Ask the collected sources a question…"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            aria-label="Ask the sources"
+          />
+          <button
+            type="submit"
+            disabled={!question.trim() || asking}
+            className="rounded-md border border-black/15 px-3 py-2 text-sm transition-colors hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10"
+          >
+            {asking ? "Asking…" : "Ask"}
+          </button>
+        </form>
       )}
 
       <div className="grid gap-5 md:grid-cols-[220px_1fr]">
