@@ -41,6 +41,26 @@ at once is the normal case here, not an edge case. With `RPUSH` for notes and `H
 sources, 20 parallel notes from three agents all survive, and eight simultaneous collects of
 the same video collapse to one source.
 
+## The research team
+
+`dispatch_research_team` puts four agents on a topic. They are not a chat thread — each
+joins the workspace as a participant and files into it as it goes, so findings arrive on
+screen while the run is still going:
+
+| Role | What it contributes |
+| --- | --- |
+| **Scout** | Reads a dozen candidates and picks the few worth a researcher's time, saying why |
+| **Reader** | Pulls quoted claims out of each source, anchored to timestamps where a transcript exists |
+| **Critic** | Challenges the evidence and names what the sources disagree about |
+| **Synthesist** | States what is established, what is contested, and what to look at next |
+
+Runs on Groq (`openai/gpt-oss-120b`) via the AI SDK. A production run on "WebMCP browser
+agents" took under 25 seconds and produced 4 sources and 16 notes, including the Critic
+noting that two sources conflict on the security model.
+
+The tool returns immediately rather than awaiting the run, because the point is watching
+the work land. A person can dispatch the same team from the button under the search box.
+
 ## Why WebMCP fits
 
 Video research is slow for a person (transcripts are long) and blind for an agent (a chat
@@ -76,6 +96,8 @@ port of the old one.
 
 ## Third-party terms
 
+- **Groq** — runs the research team's models (`openai/gpt-oss-120b`) via the Vercel AI SDK.
+- **Upstash Redis** — shared workspace state, provisioned through the Vercel Marketplace.
 - **YouTube Data API v3** — used with a developer API key for search and video metadata, in
   the manner the API is published for.
 - **Caption retrieval** (`youtube-transcript`) reads YouTube's caption endpoints directly
@@ -94,6 +116,7 @@ port of the old one.
 | `add_note` | Adds a freeform note — a synthesis, question, or next step |
 | `read_workspace` | Reads current topic, sources, and all notes (including the human's) |
 | `set_focus` | Changes what the researcher sees on screen |
+| `dispatch_research_team` | Puts a four-agent team on a topic; they join and file into the workspace |
 | `join_workspace` | Announces an agent under a name so its contributions are labelled |
 | `list_participants` | Shows who else — person or agent — is working here, and what they filed |
 | `remove_item` | Removes a source or note (destructive; confirmation requested) |
@@ -142,6 +165,8 @@ src/
   lib/webmcp/support.ts          Feature detection
   lib/workspace-store.tsx        Shared state: topic, sources, notes, focus
   lib/workspace-actions.ts       Operations the UI and the tools both call
+  lib/team/run.ts                The four-role research team pipeline
+  lib/workspace/server.ts        Redis-backed shared state
   lib/youtube/client.ts          Quota-rotating YouTube Data API pool
   lib/youtube/search.ts          Video search + details
   lib/youtube/transcript.ts      Timestamped captions
