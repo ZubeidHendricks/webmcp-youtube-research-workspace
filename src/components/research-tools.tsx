@@ -12,6 +12,10 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function count(n: number, singular: string): string {
+  return `${n} ${singular}${n === 1 ? "" : "s"}`;
+}
+
 /**
  * The agent-facing surface of the workspace.
  *
@@ -29,8 +33,6 @@ export function ResearchTools() {
   const {
     topic,
     results,
-    sources,
-    notes,
     focus,
     addNote,
     removeNote,
@@ -38,6 +40,7 @@ export function ResearchTools() {
     setFocus,
     setTranscript,
     findSource,
+    readLive,
   } = useWorkspace();
   const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
 
@@ -110,7 +113,7 @@ export function ResearchTools() {
       try {
         const source = await collectSource(videoId);
         setFocus({ kind: "source", videoId });
-        return `Collected "${source.title}" (${source.channelTitle}). ${sources.length + 1} sources in the workspace.`;
+        return `Collected "${source.title}" (${source.channelTitle}). ${count(readLive().sources.length, "source")} in the workspace.`;
       } catch (error) {
         return `Could not collect that video: ${errorText(error)}`;
       }
@@ -274,7 +277,7 @@ export function ResearchTools() {
           },
         });
         setFocus({ kind: "notes" });
-        return `Filed citation at ${note.anchor?.timestamp} of "${source.title}". ${notes.length + 1} notes in the workspace.`;
+        return `Filed citation at ${note.anchor?.timestamp} of "${source.title}". ${count(readLive().notes.length, "note")} in the workspace.`;
       } catch (error) {
         return `Could not file that citation: ${errorText(error)}`;
       }
@@ -297,7 +300,7 @@ export function ResearchTools() {
       if (text.length > 2000) return "Note is too long (max 2000 characters).";
       addNote({ author: "agent", text: text.trim() });
       setFocus({ kind: "notes" });
-      return `Note added. ${notes.length + 1} notes in the workspace.`;
+      return `Note added. ${count(readLive().notes.length, "note")} in the workspace.`;
     },
   });
 
@@ -307,6 +310,7 @@ export function ResearchTools() {
       "Read the current state of the workspace — topic, collected sources, and every note, including ones the researcher wrote themselves. Call this first to catch up on what the human has done.",
     inputSchema: { type: "object", properties: {} },
     execute: () => {
+      const { sources, notes } = readLive();
       const lines = [`Topic: ${topic || "(none set)"}`];
 
       lines.push(
@@ -369,7 +373,7 @@ export function ResearchTools() {
       if (show === "source") {
         if (!video) return "Provide which source to show.";
         const match = extractVideoId(video)
-          ? sources.find((source) => source.videoId === extractVideoId(video))
+          ? readLive().sources.find((source) => source.videoId === extractVideoId(video))
           : findSource(video);
         if (!match) return `No collected source matching "${video}". Call read_workspace first.`;
         setFocus({ kind: "source", videoId: match.videoId });
@@ -404,7 +408,7 @@ export function ResearchTools() {
       }
       if (kind === "note") {
         const needle = target.trim().toLowerCase();
-        const match = notes.find(
+        const match = readLive().notes.find(
           (note) =>
             note.id === target.trim() ||
             note.text.toLowerCase().includes(needle) ||

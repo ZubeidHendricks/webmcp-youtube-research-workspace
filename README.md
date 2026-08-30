@@ -65,11 +65,26 @@ port of the old one.
 | `search_videos` | Searches YouTube; results appear in the workspace |
 | `collect_source` | Pulls a video into the workspace as a research source |
 | `read_transcript` | Reads a source's timestamped transcript, filterable by query or time range |
+| `provide_transcript` | Lets the agent supply transcript lines it read itself, which then render and cite like any other |
 | `cite_moment` | Files a citation anchored to an exact moment, with commentary |
 | `add_note` | Adds a freeform note — a synthesis, question, or next step |
 | `read_workspace` | Reads current topic, sources, and all notes (including the human's) |
 | `set_focus` | Changes what the researcher sees on screen |
 | `remove_item` | Removes a source or note (destructive; confirmation requested) |
+
+## Trying the tools without a WebMCP browser
+
+Append `?agent-sim=1` to any page URL to install a spec-shaped stand-in for
+`document.modelContext` before the app hydrates. The app's real registration path runs
+unchanged, and the tools become callable from the console:
+
+```js
+await document.modelContext.getTools();
+await document.modelContext.executeTool("search_videos", '{"query":"ai agents"}');
+```
+
+The banner reads "Simulated agent (testing)" so the state is never mistaken for a real
+agent. Without the query parameter the stub is not installed and the page behaves normally.
 
 ## Setup
 
@@ -167,10 +182,12 @@ Ruled out by testing, so you don't have to repeat it:
 ### The design that follows from this
 
 `read_transcript` is **best effort**, and nothing else depends on it. When it fails the tool
-tells the agent so explicitly and instructs it to read the video by its own means and record
-findings anyway — `cite_moment` only needs a video, a timestamp, and a quote, never a
-successful transcript fetch. The human has the same escape hatch: a failed transcript
-renders a manual "cite a moment" form.
+tells the agent to read the video by its own means and send the lines back with
+`provide_transcript` — they then render in the transcript pane exactly like a fetched
+transcript, with the same per-line cite buttons, so the researcher gets the content and both
+parties can cite from it. The agent can also skip straight to `cite_moment`, which never
+required a successful fetch. Hand-typing a quote stays available but is collapsed behind a
+link, because it is the fallback, not the offer.
 
 This is a reasonable division of labour for an agent-native app rather than a workaround.
 The agent already has browsing; what it lacks is a place to put what it finds. This app is

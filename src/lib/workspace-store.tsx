@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -33,6 +34,8 @@ export interface Note {
 export type Focus = { kind: "source"; videoId: string } | { kind: "notes" } | { kind: "results" };
 
 interface WorkspaceValue {
+  /** Current sources/notes readable synchronously after a mutation — for tools. */
+  readLive: () => { sources: Source[]; notes: Note[] };
   topic: string;
   results: VideoResult[];
   sources: Source[];
@@ -62,57 +65,90 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [focus, setFocus] = useState<Focus>({ kind: "results" });
   const [busy, setBusy] = useState(false);
 
-  const addSource = useCallback((video: VideoResult) => {
-    const source: Source = { ...video, addedAt: Date.now() };
-    setSources((current) =>
-      current.some((item) => item.videoId === video.videoId)
-        ? current
-        : [...current, source],
-    );
-    return source;
+  /**
+   * Mirrors of the collections above, updated synchronously by every mutation.
+   *
+   * React state is not readable until the next render, but an agent can call
+   * several tools in quick succession — `cite_moment` then `read_workspace`
+   * would otherwise report the workspace as it looked before the citation.
+   * Tools read these; rendering reads the state.
+   */
+  const sourcesRef = useRef(sources);
+  const notesRef = useRef(notes);
+
+  const commitSources = useCallback((next: Source[]) => {
+    sourcesRef.current = next;
+    setSources(next);
   }, []);
 
-  const removeSource = useCallback((videoId: string) => {
-    let removed: Source | undefined;
-    setSources((current) => {
-      removed = current.find((item) => item.videoId === videoId);
-      return current.filter((item) => item.videoId !== videoId);
-    });
-    return removed;
+  const commitNotes = useCallback((next: Note[]) => {
+    notesRef.current = next;
+    setNotes(next);
   }, []);
 
-  const setTranscript = useCallback((videoId: string, segments: TranscriptSegment[]) => {
-    setSources((current) =>
-      current.map((item) =>
-        item.videoId === videoId
-          ? { ...item, transcript: segments, transcriptError: undefined }
-          : item,
-      ),
-    );
-  }, []);
+  const addSource = useCallback(
+    (video: VideoResult) => {
+      const existing = sourcesRef.current.find((item) => item.videoId === video.videoId);
+      if (existing) return existing;
+      const source: Source = { ...video, addedAt: Date.now() };
+      commitSources([...sourcesRef.current, source]);
+      return source;
+    },
+    [commitSources],
+  );
 
-  const setTranscriptError = useCallback((videoId: string, message: string) => {
-    setSources((current) =>
-      current.map((item) =>
-        item.videoId === videoId ? { ...item, transcriptError: message } : item,
-      ),
-    );
-  }, []);
+  const removeSource = useCallback(
+    (videoId: string) => {
+      const removed = sourcesRef.current.find((item) => item.videoId === videoId);
+      if (removed) {
+        commitSources(sourcesRef.current.filter((item) => item.videoId !== videoId));
+      }
+      return removed;
+    },
+    [commitSources],
+  );
 
-  const addNote = useCallback((note: Omit<Note, "id" | "createdAt">) => {
-    const created: Note = { ...note, id: crypto.randomUUID(), createdAt: Date.now() };
-    setNotes((current) => [...current, created]);
-    return created;
-  }, []);
+  const setTranscript = useCallback(
+    (videoId: string, segments: TranscriptSegment[]) => {
+      commitSources(
+        sourcesRef.current.map((item) =>
+          item.videoId === videoId
+            ? { ...item, transcript: segments, transcriptError: undefined }
+            : item,
+        ),
+      );
+    },
+    [commitSources],
+  );
 
-  const removeNote = useCallback((id: string) => {
-    let removed: Note | undefined;
-    setNotes((current) => {
-      removed = current.find((note) => note.id === id);
-      return current.filter((note) => note.id !== id);
-    });
-    return removed;
-  }, []);
+  const setTranscriptError = useCallback(
+    (videoId: string, message: string) => {
+      commitSources(
+        sourcesRef.current.map((item) =>
+          item.videoId === videoId ? { ...item, transcriptError: message } : item,
+        ),
+      );
+    },
+    [commitSources],
+  );
+
+  const addNote = useCallback(
+    (note: Omit<Note, "id" | "createdAt">) => {
+      const created: Note = { ...note, id: crypto.randomUUID(), createdAt: Date.now() };
+      commitNotes([...notesRef.current, created]);
+      return created;
+    },
+    [commitNotes],
+  );
+
+  const removeNote = useCallback(
+    (id: string) => {
+      const removed = notesRef.current.find((note) => note.id === id);
+      if (removed) commitNotes(notesRef.current.filter((note) => note.id !== id));
+      return removed;
+    },
+    [commitNotes],
+  );
 
   const value = useMemo<WorkspaceValue>(
     () => ({
@@ -132,12 +168,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       addNote,
       removeNote,
       setFocus,
+      readLive: () => ({ sources: sourcesRef.current, notes: notesRef.current }),
       findSource: (query) => {
         const needle = query.trim().toLowerCase();
+        const live = sourcesRef.current;
         return (
-          sources.find((source) => source.videoId === query.trim()) ??
-          sources.find((source) => source.title.toLowerCase() === needle) ??
-          sources.find((source) => source.title.toLowerCase().includes(needle))
+          live.find((source) => source.videoId === query.trim()) ??
+          live.find((source) => source.title.toLowerCase() === needle) ??
+          live.find((source) => source.title.toLowerCase().includes(needle))
         );
       },
     }),
