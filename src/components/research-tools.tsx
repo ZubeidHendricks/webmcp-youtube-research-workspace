@@ -38,12 +38,12 @@ export function ResearchTools() {
     setFocus,
     findSource,
   } = useWorkspace();
-  const { runSearch, collectSource, loadTranscript } = useWorkspaceActions();
+  const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
 
   useWebMcpTool<{ query?: string; limit?: number; include_uncaptioned?: boolean }>({
     name: "search_videos",
     description:
-      "Search YouTube and show the results in the workspace's results panel. Defaults to videos that advertise a caption track. Use this to find candidate sources for the research topic.",
+      "Search YouTube and show the results in the workspace's results panel. Defaults to videos that advertise a caption track. Passing a YouTube URL or video id instead of search terms collects that video as a source directly. Use this to find candidate sources for the research topic.",
     inputSchema: {
       type: "object",
       properties: {
@@ -67,7 +67,12 @@ export function ResearchTools() {
       const count = Math.min(Math.max(Number(limit) || 8, 1), 25);
       const captionedOnly = include_uncaptioned !== true;
       try {
-        const found = await runSearch(query.trim(), { limit: count, captionedOnly });
+        const outcome = await searchOrCollect(query.trim(), { limit: count, captionedOnly });
+        if (outcome.kind === "collected") {
+          setFocus({ kind: "source", videoId: outcome.source.videoId });
+          return `That was a video link, so it was collected as a source instead of searched: "${outcome.source.title}" (${outcome.source.channelTitle}).`;
+        }
+        const found = outcome.results;
         setFocus({ kind: "results" });
         if (found.length === 0) {
           return captionedOnly

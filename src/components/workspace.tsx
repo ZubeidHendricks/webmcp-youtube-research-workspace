@@ -27,7 +27,7 @@ export function Workspace() {
     removeNote,
     removeSource,
   } = useWorkspace();
-  const { runSearch, collectSource, loadTranscript } = useWorkspaceActions();
+  const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
   const [draftQuery, setDraftQuery] = useState("");
   const [captionedOnly, setCaptionedOnly] = useState(true);
   const [draftNote, setDraftNote] = useState("");
@@ -55,14 +55,19 @@ export function Workspace() {
           event.preventDefault();
           if (!draftQuery.trim()) return;
           void guard(async () => {
-            await runSearch(draftQuery.trim(), { captionedOnly });
-            setFocus({ kind: "results" });
+            const outcome = await searchOrCollect(draftQuery.trim(), { captionedOnly });
+            if (outcome.kind === "collected") {
+              setFocus({ kind: "source", videoId: outcome.source.videoId });
+              setDraftQuery("");
+            } else {
+              setFocus({ kind: "results" });
+            }
           });
         }}
       >
         <input
           className="flex-1 rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/50 dark:border-white/20"
-          placeholder="Research a topic on YouTube…"
+          placeholder="Search a topic, or paste a YouTube URL…"
           value={draftQuery}
           onChange={(event) => setDraftQuery(event.target.value)}
           aria-label="Search YouTube"
@@ -202,12 +207,21 @@ function ResultsPane({
   onCollect: (videoId: string) => void;
   collected: Set<string>;
 }) {
-  const { results } = useWorkspace();
+  const { results, topic } = useWorkspace();
+
+  if (results.length === 0 && topic) {
+    return (
+      <p className="text-sm text-foreground/50">
+        No results for &ldquo;{topic}&rdquo;. Try different wording, or untick &ldquo;prefer
+        videos with caption tracks&rdquo; to widen the search.
+      </p>
+    );
+  }
 
   if (results.length === 0) {
     return (
       <p className="text-sm text-foreground/50">
-        Search above, or ask your agent to find sources on a topic.
+        Search a topic or paste a YouTube URL above — or ask your agent to find sources.
       </p>
     );
   }

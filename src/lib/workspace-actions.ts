@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useWorkspace, type Source } from "@/lib/workspace-store";
-import type { TranscriptSegment, VideoResult } from "@/lib/youtube/types";
+import { extractVideoId, type TranscriptSegment, type VideoResult } from "@/lib/youtube/types";
 
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: string };
@@ -83,5 +83,32 @@ export function useWorkspaceActions() {
     [sources, setTranscript, setTranscriptError],
   );
 
-  return { runSearch, collectSource, loadTranscript };
+  /**
+   * What the search box (and the search tool) actually do with free-form input.
+   *
+   * Pasting a video URL is a request to work with *that* video, not to search
+   * for its URL string — so it collects the source instead of searching.
+   */
+  const searchOrCollect = useCallback(
+    async (
+      input: string,
+      options: { limit?: number; captionedOnly?: boolean } = {},
+    ): Promise<
+      { kind: "collected"; source: Source } | { kind: "searched"; results: VideoResult[] }
+    > => {
+      const videoId = extractVideoId(input);
+      if (videoId) {
+        setBusy(true);
+        try {
+          return { kind: "collected", source: await collectSource(videoId) };
+        } finally {
+          setBusy(false);
+        }
+      }
+      return { kind: "searched", results: await runSearch(input, options) };
+    },
+    [collectSource, runSearch, setBusy],
+  );
+
+  return { runSearch, collectSource, loadTranscript, searchOrCollect };
 }
