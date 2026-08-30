@@ -3,6 +3,7 @@
 import { useWebMcpTool } from "@/lib/webmcp/use-webmcp-tool";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useWorkspaceActions } from "@/lib/workspace-actions";
+import { useResearchTeam } from "@/lib/team-client";
 import { extractVideoId, formatTimestamp, parseTimestamp } from "@/lib/youtube/types";
 
 /** Transcripts are long; never hand the agent more than this in one call. */
@@ -33,6 +34,7 @@ export function ResearchTools() {
   const { results, focus, setFocus, findSource, readLive, apply, identity, setIdentity } =
     useWorkspace();
   const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
+  const { dispatchTeam } = useResearchTeam();
 
   useWebMcpTool<{ query?: string; limit?: number; include_uncaptioned?: boolean }>({
     name: "search_videos",
@@ -309,6 +311,29 @@ export function ResearchTools() {
       });
       setFocus({ kind: "notes" });
       return `Note added. ${count(readLive().notes.length, "note")} in the workspace.`;
+    },
+  });
+
+  useWebMcpTool<{ topic?: string }>({
+    name: "dispatch_research_team",
+    description:
+      "Put a four-agent research team on a topic: Scout picks the sources worth reading, Reader extracts quoted claims with timestamps, Critic challenges what they found, and Synthesist states where it leaves things. They join this workspace and file their work into it over the next minute or two, so watch it arrive with read_workspace rather than waiting on this call. Use it to open up a topic quickly; do your own targeted work with the other tools.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "What the team should research." },
+      },
+      required: ["topic"],
+    },
+    execute: async ({ topic }) => {
+      if (typeof topic !== "string" || topic.trim().length === 0) {
+        return "Provide a topic for the team to research.";
+      }
+      try {
+        return await dispatchTeam(topic.trim());
+      } catch (error) {
+        return `Could not dispatch the team: ${errorText(error)}`;
+      }
     },
   });
 

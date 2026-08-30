@@ -36,6 +36,7 @@ export interface Identity {
 }
 
 interface WorkspaceValue {
+  workspaceId: string;
   shared: WorkspaceState;
   /** Readable synchronously right after a mutation — tools chain calls faster than React renders. */
   readLive: () => WorkspaceState;
@@ -217,6 +218,7 @@ export function WorkspaceProvider({
 
   const value = useMemo<WorkspaceValue>(
     () => ({
+      workspaceId,
       shared,
       readLive: () => sharedRef.current,
       identity,
@@ -239,7 +241,7 @@ export function WorkspaceProvider({
         );
       },
     }),
-    [shared, identity, setIdentity, results, focus, busy, offline, apply],
+    [workspaceId, shared, identity, setIdentity, results, focus, busy, offline, apply],
   );
 
   return <WorkspaceContext value={value}>{children}</WorkspaceContext>;

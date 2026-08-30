@@ -52,6 +52,16 @@ function parse<T>(value: unknown): T | null {
   }
 }
 
+/** Refreshes a participant's lastSeen, if they are already known. */
+async function markSeen(id: string, participantId: string) {
+  const k = keys(id);
+  const existing = parse<Participant>(await redis().hget(k.participants, participantId));
+  if (!existing) return;
+  await redis().hset(k.participants, {
+    [participantId]: JSON.stringify({ ...existing, lastSeen: Date.now() }),
+  });
+}
+
 async function touch(id: string) {
   const k = keys(id);
   const r = redis();
@@ -147,6 +157,9 @@ export async function mutateWorkspace(
       const note: Note = { ...op.note, id: crypto.randomUUID(), createdAt: now };
       // RPUSH is atomic — parallel writers never lose a note.
       await r.rpush(k.notes, JSON.stringify(note));
+      // Filing work counts as being present: a long-running agent that writes
+      // steadily should never be pruned as absent between heartbeats.
+      await markSeen(id, op.note.authorId);
       break;
     }
 

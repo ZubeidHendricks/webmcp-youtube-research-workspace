@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useWorkspace, type Focus, type Note, type Source } from "@/lib/workspace-store";
 import { useWorkspaceActions } from "@/lib/workspace-actions";
+import { useResearchTeam } from "@/lib/team-client";
 
 function watchUrl(videoId: string, seconds?: number) {
   return `https://www.youtube.com/watch?v=${videoId}${seconds ? `&t=${seconds}s` : ""}`;
@@ -17,6 +18,8 @@ export function Workspace() {
   const { shared, results, focus, busy, offline, identity, setFocus, apply } = useWorkspace();
   const { topic, sources, notes, participants } = shared;
   const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
+  const { dispatchTeam } = useResearchTeam();
+  const [dispatching, setDispatching] = useState(false);
   const [draftQuery, setDraftQuery] = useState("");
   const [captionedOnly, setCaptionedOnly] = useState(true);
   const [draftNote, setDraftNote] = useState("");
@@ -70,7 +73,29 @@ export function Workspace() {
         </button>
       </form>
 
-      <label className="-mt-2 flex items-center gap-2 text-xs text-foreground/50">
+      <div className="-mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          disabled={!draftQuery.trim() || dispatching}
+          onClick={() => {
+            const topic = draftQuery.trim();
+            if (!topic) return;
+            setDispatching(true);
+            void guard(async () => {
+              await dispatchTeam(topic);
+              setFocus({ kind: "notes" });
+            }).then(() => setDispatching(false));
+          }}
+          className="rounded-md border border-black/15 px-3 py-1.5 text-xs transition-colors hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10"
+        >
+          {dispatching ? "Dispatching…" : "Send the research team"}
+        </button>
+        <span className="text-xs text-foreground/40">
+          Scout → Reader → Critic → Synthesist, filing into this workspace
+        </span>
+      </div>
+
+      <label className="flex items-center gap-2 text-xs text-foreground/50">
         <input
           type="checkbox"
           className="size-3.5 accent-current"
