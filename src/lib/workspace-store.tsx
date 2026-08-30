@@ -55,8 +55,11 @@ interface WorkspaceValue {
 /**
  * Identity lives outside React so it can be read during render.
  *
- * It is per-browser and persisted, so a reload keeps your notes attributed to you
- * and an agent that renamed itself stays renamed.
+ * Scoped to the *tab* (sessionStorage), not the browser: two tabs on one machine
+ * are two participants, which is how anyone will try this — and how a person and
+ * their agent can appear separately. A reload keeps the same identity, so your
+ * notes stay attributed to you; participants that stop checking in are pruned
+ * server-side.
  */
 const identityCache = new Map<string, Identity>();
 const identityListeners = new Set<() => void>();
@@ -72,7 +75,7 @@ function loadIdentity(workspaceId: string): Identity {
 
   let identity: Identity | null = null;
   try {
-    const raw = window.localStorage.getItem(identityKey(workspaceId));
+    const raw = window.sessionStorage.getItem(identityKey(workspaceId));
     if (raw) identity = JSON.parse(raw) as Identity;
   } catch {
     // private mode or blocked storage
@@ -80,7 +83,7 @@ function loadIdentity(workspaceId: string): Identity {
   const resolved = identity ?? { id: crypto.randomUUID(), label: "You", kind: "human" };
   identityCache.set(workspaceId, resolved);
   try {
-    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(resolved));
+    window.sessionStorage.setItem(identityKey(workspaceId), JSON.stringify(resolved));
   } catch {
     // non-fatal
   }
@@ -90,7 +93,7 @@ function loadIdentity(workspaceId: string): Identity {
 function storeIdentity(workspaceId: string, identity: Identity) {
   identityCache.set(workspaceId, identity);
   try {
-    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(identity));
+    window.sessionStorage.setItem(identityKey(workspaceId), JSON.stringify(identity));
   } catch {
     // non-fatal
   }
@@ -105,6 +108,8 @@ function subscribeIdentity(listener: () => void) {
 const WorkspaceContext = createContext<WorkspaceValue | null>(null);
 
 const POLL_MS = 2000;
+/** How often a tab re-announces itself so it isn't pruned as gone. */
+const HEARTBEAT_MS = 30_000;
 
 export function WorkspaceProvider({
   workspaceId,
@@ -164,13 +169,26 @@ export function WorkspaceProvider({
       .catch(() => setOffline("Working offline — changes are not being shared."));
   }, [workspaceId, commit]);
 
-  // Poll for what everyone else is doing.
+  // Poll for what everyone else is doing, and check in so we stay listed.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    let sinceHeartbeat = 0;
 
     const tick = async () => {
       try {
+        sinceHeartbeat += POLL_MS;
+        if (sinceHeartbeat >= HEARTBEAT_MS) {
+          sinceHeartbeat = 0;
+          void fetch(`/api/workspace/${workspaceId}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              type: "join",
+              participant: loadIdentity(workspaceId),
+            } satisfies WorkspaceOp),
+          }).catch(() => {});
+        }
         const response = await fetch(`/api/workspace/${workspaceId}`, { cache: "no-store" });
         if (response.ok && !cancelled) {
           commit((await response.json()) as WorkspaceState);
