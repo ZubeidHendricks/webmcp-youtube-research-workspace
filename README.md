@@ -1,18 +1,15 @@
 # YouGo
 
-A research workspace for YouTube that a person and an AI agent operate **together**. The
+A research workspace for papers that people and their AI agents operate **together**. The
 page registers its own tools with the browser through
 [WebMCP](https://github.com/webmachinelearning/webmcp)
 (`document.modelContext.registerTool`), so whatever agent is driving the page can search
-YouTube, read transcripts, and file cited notes into the same workspace the human is
-looking at — and can read back what the human did.
+arXiv, read full texts, and file cited notes into the same workspace the human is looking
+at — and can read back what everyone else did.
 
 **Live:** https://yougo.k53.tech
 
-Built for [The WebMCP Challenge](https://webmcp.devpost.com/). The YouTube layer is adapted
-from [ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server),
-an existing stdio MCP server; this project moves that capability *into the page*, where the
-agent and the human share one artifact instead of the agent working alone in a chat window.
+Built for [The WebMCP Challenge](https://webmcp.devpost.com/).
 
 ## Shared workspaces
 
@@ -40,30 +37,27 @@ the same video collapse to one source.
 
 ## Asking the sources
 
-Once a source has a transcript — fetched, supplied by an agent, or pulled in by the research
-team — it is indexed for retrieval, and `ask_sources` (or the ask box above the panes)
-answers questions from it:
+Once a paper's full text has been read, it is indexed for retrieval, and `ask_sources` (or
+the ask box above the panes) answers questions from it:
 
-> **Q:** Why is it hard to audit what these systems do after they run?
-> **A:** …the agents are non-deterministic and the existing logging wasn't built to capture
-> their actions for later review.
-> — *"The hardest part is not building the agent. It is knowing what it did after the fact…"* @ **3:30**
+> **Q:** What defence does this paper propose, and how well does it work?
+> **A:** …UniGuardian, a framework that detects prompt-trigger attacks at inference time…
+> — *"we propose UniGuardian, a novel framework"* · **Abstract**
 
-Retrieval runs across every source at once, so it answers cross-source questions — where
-several videos agree, and where they conflict. The answer and each supporting quote are
-filed into the notes, so an answer becomes part of the shared artifact rather than a message
-that scrolls away.
+Retrieval runs across every collected paper at once, so it answers cross-source questions —
+where several papers agree, and where they conflict. The answer and each supporting quote
+are filed into the notes, so an answer becomes part of the shared artifact rather than a
+message that scrolls away.
 
-**How it works.** Caption lines are merged into overlapping ~700-character windows that keep
-their start time, embedded by Upstash Vector's hosted model into a per-workspace namespace.
-The question is embedded the same way, so wording that appears nowhere in the transcript
-still retrieves the right passage. The model answers only from retrieved passages and says
-when they don't cover the question.
+**How it works.** Paragraphs are merged into ~1,200-character chunks that never cross a
+section boundary, embedded by Upstash Vector's hosted model into a per-workspace namespace.
+The question is embedded the same way, so wording that appears nowhere in the paper still
+retrieves the right passage.
 
-**Citations point at the line, not the window.** A 700-character window starting at 0:20 can
-contain words spoken minutes later, so stamping a citation with the window's start time sends
-you to the wrong moment. Each quote is matched back to the caption line that actually
-contains it — exactly where possible, by word overlap where the model stitched across lines.
+**Citations open the paper at the words.** Each citation links with a
+[text fragment](https://developer.mozilla.org/en-US/docs/Web/URI/Fragment/Text_fragments)
+(`#:~:text=…`), so clicking one opens the paper scrolled to that sentence and highlights it —
+the papers equivalent of a video timestamp, and the reason a claim stays checkable.
 
 ## The research team
 
@@ -74,77 +68,86 @@ screen while the run is still going:
 | Role | What it contributes |
 | --- | --- |
 | **Scout** | Reads a dozen candidates and picks the few worth a researcher's time, saying why |
-| **Reader** | Pulls quoted claims out of each source, anchored to timestamps where a transcript exists |
+| **Reader** | Pulls quoted claims out of each paper, anchored to the section they came from |
 | **Critic** | Challenges the evidence and names what the sources disagree about |
 | **Synthesist** | States what is established, what is contested, and what to look at next |
 
-Runs on Groq (`openai/gpt-oss-120b`) via the AI SDK. A production run on "WebMCP browser
-agents" took under 25 seconds and produced 4 sources and 16 notes, including the Critic
-noting that two sources conflict on the security model.
+Runs on Groq (`openai/gpt-oss-120b`) via the AI SDK. A run on "prompt injection attacks on
+tool-using agents" produced 4 papers — all four read in full — and 16 notes including 8
+quoted citations, with the Critic noting that no unified benchmark exists across text, web
+and robotic tool-using agents.
 
 The tool returns immediately rather than awaiting the run, because the point is watching
 the work land. A person can dispatch the same team from the button under the search box.
 
+## Why papers, not video
+
+This started on YouTube. That failed for a measurable reason: YouTube withholds
+auto-generated caption tracks from datacenter IPs — across 20 videos sampled from four
+caption-heavy topics, **none** were readable from a deployed server. Citations and Q&A only
+worked if an agent supplied a transcript, so a visitor without an agent saw neither.
+
+arXiv serves full text to anyone. Search, metadata and section-tagged paragraphs all work
+server-side, so every feature works for every visitor — and the agent tools are then a
+genuine multiplier rather than the only way in. Full-text retrieval tries arXiv's own HTML
+rendering first and ar5iv as a fallback, twice each, because a single slow response was
+otherwise dropping three of four papers in a research run.
+
 ## Why WebMCP fits
 
-Video research is slow for a person (transcripts are long) and blind for an agent (a chat
-agent can summarize a video but can't hand you a workspace). Splitting it works badly in
-both directions. Here the two halves share state:
+Reading research is asymmetric work. A person can judge in seconds whether a paper is worth
+their time, but reading four of them to find where they actually disagree is a day. An agent
+is the reverse: it can read all four instantly, but it has nowhere to put what it finds. The
+gap is bridged by copy-paste — the agent summarizes in a chat window, the person retypes the
+useful parts, and the citation back to the exact sentence is lost.
 
-- The agent calls `read_transcript` with a query filter and finds the three moments that
-  matter across an hour of video.
-- It calls `cite_moment`, and a timestamped, clickable citation appears in the researcher's
-  notes panel — with the agent's reasoning attached.
-- It calls `set_focus` to put the relevant source on screen while it explains.
-- The researcher cites a moment themselves; the agent sees it on its next `read_workspace`.
+WebMCP closes the gap by putting both parties inside the same page. YouGo exposes its own
+operations as tools, so an agent isn't describing research it did elsewhere — it is *doing*
+research in the artifact the person is looking at:
 
-## Provenance: new work vs. prior work
+- The agent calls `ask_sources` and finds the three passages that matter across four papers.
+- It calls `cite_passage`, and a quoted citation appears in the researcher's notes panel,
+  linking straight to that sentence in the paper.
+- It calls `set_focus` to put the relevant paper on screen while it explains.
+- The researcher cites a passage themselves; the agent sees it on its next `read_workspace`.
+
+That only works if the tools are the page's own state, which is what WebMCP provides and
+what a conventional MCP server cannot: a server-side tool can fetch a paper, but it cannot
+put a citation on the screen in front of you.
+
+## Provenance
 
 Everything in this repository was written during the Hackathon Submission Period. The repo
 was created 2026-08-29 and its full commit history is public and dated.
 
-Two server-side files **adapt** code from a pre-existing project of the author's,
-[ZubeidHendricks/youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server)
-(MIT), which is a stdio MCP server for Claude Desktop and contains no web app and no WebMCP:
-
-| File | Relationship to prior work |
-| --- | --- |
-| `src/lib/youtube/client.ts` | Adapted from that project's `src/services/youtube-client.ts` (quota-aware API key rotation) |
-| `src/lib/youtube/transcript.ts` | Adapted from that project's `src/services/transcript.ts` (caption fetching) |
-
-Everything else is new: the entire WebMCP layer, the workspace model, the shared actions
-layer, all eight tools, the UI, and the Next.js route handlers. The prior project exposes
-tools to a single desktop client over stdio; this project exposes a *page's own* interface
-to whatever agent is driving the browser, which is a different architecture rather than a
-port of the old one.
+An earlier revision adapted two files from the author's pre-existing
+[youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server) while the corpus
+was YouTube; both were removed when the workspace moved to papers, and no code from that
+project remains. The history shows the change.
 
 ## Third-party terms
 
 - **Groq** — runs the research team's models (`openai/gpt-oss-120b`) via the Vercel AI SDK.
 - **Upstash Redis** — shared workspace state, provisioned through the Vercel Marketplace.
 - **Upstash Vector** — transcript embeddings and retrieval, using its hosted embedding model.
-- **YouTube Data API v3** — used with a developer API key for search and video metadata, in
-  the manner the API is published for.
-- **Caption retrieval** (`youtube-transcript`) reads YouTube's caption endpoints directly
-  rather than through the Data API. It is best-effort and the app is fully functional
-  without it — see the transcript section below.
+- **arXiv API** — public, no key, used for search and paper metadata.
+- **arXiv HTML / ar5iv** — full text of papers, as published for readers.
 
 ## Registered tools
 
 | Tool | What it does |
 | --- | --- |
-| `search_videos` | Searches YouTube; results appear in the workspace |
-| `collect_source` | Pulls a video into the workspace as a research source |
-| `read_transcript` | Reads a source's timestamped transcript, filterable by query or time range |
-| `provide_transcript` | Lets the agent supply transcript lines it read itself, which then render and cite like any other |
-| `cite_moment` | Files a citation anchored to an exact moment, with commentary |
+| `search_papers` | Searches arXiv; results appear in the workspace |
+| `collect_paper` | Pulls a paper in as a research source |
+| `read_paper` | Reads the full text as section-tagged paragraphs, filterable |
+| `ask_sources` | Answers a question from the collected papers, with quoted evidence |
+| `cite_passage` | Files a citation anchored to an exact quote, with commentary |
 | `add_note` | Adds a freeform note — a synthesis, question, or next step |
-| `read_workspace` | Reads current topic, sources, and all notes (including the human's) |
-| `set_focus` | Changes what the researcher sees on screen |
-| `ask_sources` | Answers a question from the collected transcripts, with quoted timestamped evidence |
 | `dispatch_research_team` | Puts a four-agent team on a topic; they join and file into the workspace |
 | `join_workspace` | Announces an agent under a name so its contributions are labelled |
-| `list_participants` | Shows who else — person or agent — is working here, and what they filed |
+| `list_participants` | Shows who else — person or agent — is working here |
+| `read_workspace` | Reads topic, sources, and all notes, including the humans' |
+| `set_focus` | Changes what the researcher sees on screen |
 | `remove_item` | Removes a source or note (destructive; confirmation requested) |
 
 ## Trying the tools without a WebMCP browser
@@ -155,7 +158,7 @@ unchanged, and the tools become callable from the console:
 
 ```js
 await document.modelContext.getTools();
-await document.modelContext.executeTool("search_videos", '{"query":"ai agents"}');
+await document.modelContext.executeTool("search_papers", '{"query":"ai agents"}');
 ```
 
 The banner reads "Simulated agent (testing)" so the state is never mistaken for a real
@@ -169,10 +172,12 @@ cp .env.example .env.local   # add a YouTube Data API v3 key
 npm run dev                  # http://localhost:3000
 ```
 
-`YOUTUBE_API_KEY` is required. `YOUTUBE_API_KEY2` / `YOUTUBE_API_KEY3` are optional quota
-fallbacks — the client pool marks a key exhausted on a quota error and rolls to the next.
+`GROQ_API_KEY` powers the research team and the answering model. Redis and Vector
+credentials are provisioned by the Marketplace commands in `.env.example`. arXiv needs no
+key.
 
-The app works as an ordinary web app in any browser. To exercise the agent tools you need a
+The app works as an ordinary web app in any browser — every feature, including citations
+and Q&A, works with no agent present. To exercise the agent tools you need a
 WebMCP-capable browser:
 
 - **ChatGPT's in-app browser** — native WebMCP support
@@ -191,14 +196,13 @@ src/
   lib/webmcp/support.ts          Feature detection
   lib/workspace-store.tsx        Shared state: topic, sources, notes, focus
   lib/workspace-actions.ts       Operations the UI and the tools both call
-  lib/rag/index-transcript.ts    Chunking + Upstash Vector indexing and retrieval
-  lib/rag/ask.ts                 Grounded answering, with citations re-anchored to real lines
+  lib/papers/search.ts           arXiv search and metadata
+  lib/papers/fulltext.ts         Section-tagged full text, with a fallback renderer
+  lib/rag/index-passages.ts      Chunking + Upstash Vector indexing and retrieval
+  lib/rag/ask.ts                 Grounded answering with quoted citations
   lib/team/run.ts                The four-role research team pipeline
   lib/workspace/server.ts        Redis-backed shared state
-  lib/youtube/client.ts          Quota-rotating YouTube Data API pool
-  lib/youtube/search.ts          Video search + details
-  lib/youtube/transcript.ts      Timestamped captions
-  app/api/youtube/*              Route handlers (keys stay server-side)
+  app/api/papers/*               Route handlers
   components/research-tools.tsx  ← the agent-facing surface
   components/workspace.tsx       Human UI
   components/agent-status.tsx    "Agent tools active" banner
@@ -214,65 +218,18 @@ registration to an `AbortController` so unmounting unregisters the tool.
 
 ## Security notes
 
-Transcript text is untrusted third-party content, and page tools run on behalf of whoever
-is driving the agent — see Chrome's
+Paper text is untrusted third-party content, and page tools run on behalf of whoever is
+driving the agent — see Chrome's
 [security guide](https://developer.chrome.com/docs/ai/webmcp/secure-tools). This app:
 
 1. **Validates every tool input in `execute`.** The model can send values outside the
-   declared `enum`, malformed timestamps, or absent required fields.
-2. **Returns transcript text as data, never as instruction.** No tool acts on content found
-   inside a transcript; `read_transcript` says so in its own description.
-3. **Caps transcript responses** at 12,000 characters so a long video can't flood the
-   agent's context.
-4. **Keeps API keys server-side.** Tools call this app's route handlers, never YouTube
-   directly.
+   declared `enum`, malformed ids, or absent required fields.
+2. **Returns paper text as data, never as instruction.** No tool acts on content found
+   inside a paper; `read_paper` and the answering prompt both say so.
+3. **Caps text responses** at 14,000 characters so a long paper can't flood the agent's
+   context.
+4. **Keeps keys server-side.** Tools call this app's route handlers.
 5. **Marks `remove_item` as destructive** and asks the agent to confirm before calling it.
-
-## Transcripts: how the split works
-
-Transcripts come from YouTube's caption endpoint, not an authenticated API. They work from
-a local machine and fail for most videos on any deployed server.
-
-Diagnosed by fetching the YouTube watch page from inside a serverless function:
-
-| Host | Watch page | `captionTracks` present |
-| --- | --- | --- |
-| Local machine | 1.1 MB | yes, for every video tested |
-| Vercel (`iad1`) | 1.1 MB | only for videos with publisher-uploaded captions |
-| Cloudflare Workers | 3 KB (block page) | never |
-
-**YouTube strips caption track metadata from watch pages served to datacenter IPs.** Most
-videos only have auto-generated (ASR) captions, so those become unreadable server-side.
-Search and video lookup are unaffected — they use the official Data API.
-
-Ruled out by testing, so you don't have to repeat it:
-
-- **InnerTube** (`youtubei.js`) — `get_transcript` returns HTTP 400 regardless of IP.
-- **A consent cookie** (`CONSENT=YES+cb; SOCS=CAI`) on the watch page fetch — no effect.
-- **`videoCaption=closedCaption` search filter** — YouTube counts ASR tracks as closed
-  captions, so it does not select for readable videos.
-- **Fetching captions from the browser** — `youtube.com/api/timedtext` does send permissive
-  CORS headers, but the signed caption URL only exists in the watch page (no CORS) and the
-  InnerTube `player` endpoint rejects cross-origin preflight with 403. The legacy
-  unsigned `timedtext?v=…&lang=en` endpoint now returns an empty body.
-- **Another region** — Cloudflare is blocked harder than Vercel. (Vercel Hobby pins
-  functions to one region, so `preferredRegion` is ignored there.)
-
-### The design that follows from this
-
-`read_transcript` is **best effort**, and nothing else depends on it. When it fails the tool
-tells the agent to read the video by its own means and send the lines back with
-`provide_transcript` — they then render in the transcript pane exactly like a fetched
-transcript, with the same per-line cite buttons, so the researcher gets the content and both
-parties can cite from it. The agent can also skip straight to `cite_moment`, which never
-required a successful fetch. Hand-typing a quote stays available but is collapsed behind a
-link, because it is the fallback, not the offer.
-
-This is a reasonable division of labour for an agent-native app rather than a workaround.
-The agent already has browsing; what it lacks is a place to put what it finds. This app is
-the place. The page contributes the workspace, the shared state, and the citation structure;
-the agent contributes reading it can do better anyway. Transcripts, where they load, are a
-bonus that saves the agent a round trip.
 
 ## Deploy
 
