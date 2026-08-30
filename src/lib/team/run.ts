@@ -2,11 +2,10 @@ import "server-only";
 import { createGroq } from "@ai-sdk/groq";
 import { generateObject } from "ai";
 import { z } from "zod";
-import { indexTranscript } from "@/lib/rag/index-transcript";
+import { indexPaper } from "@/lib/rag/index-passages";
 import { mutateWorkspace, readWorkspace } from "@/lib/workspace/server";
-import { searchVideos } from "@/lib/youtube/search";
-import { getTranscript } from "@/lib/youtube/transcript";
-import { formatTimestamp } from "@/lib/youtube/types";
+import { searchPapers } from "@/lib/papers/search";
+import { getFullText } from "@/lib/papers/fulltext";
 import { TEAM, type RoleKey } from "./roles";
 
 /**
@@ -41,7 +40,7 @@ async function note(
   workspaceId: string,
   role: RoleKey,
   text: string,
-  anchor?: { videoId: string; seconds: number; quote: string },
+  anchor?: { sourceId: string; section: string; quote: string },
 ) {
   await mutateWorkspace(workspaceId, {
     type: "add_note",
@@ -50,9 +49,7 @@ async function note(
       authorLabel: TEAM[role].label,
       authorKind: "agent",
       text,
-      anchor: anchor
-        ? { ...anchor, timestamp: formatTimestamp(anchor.seconds) }
-        : undefined,
+      anchor,
     },
   });
 }
@@ -62,10 +59,10 @@ export async function runResearchTeam(workspaceId: string, topic: string) {
 
   // ---- Scout: choose what is worth reading -------------------------------
   await join(workspaceId, "scout");
-  const candidates = await searchVideos(topic, { maxResults: 12, captionedOnly: true });
+  const candidates = await searchPapers(topic, 12);
 
   if (candidates.length === 0) {
-    await note(workspaceId, "scout", `No YouTube results for "${topic}".`);
+    await note(workspaceId, "scout", `No arXiv results for "${topic}".`);
     return;
   }
 
@@ -76,7 +73,7 @@ export async function runResearchTeam(workspaceId: string, topic: string) {
       choices: z
         .array(
           z.object({
-            videoId: z.string(),
+            sourceId: z.string(),
             why: z.string().describe("One sentence on why this source earns a slot."),
           }),
         )
@@ -87,54 +84,48 @@ export async function runResearchTeam(workspaceId: string, topic: string) {
 Research topic: ${topic}
 
 Candidates:
-${candidates.map((c) => `- ${c.videoId} | ${c.title} | ${c.channelTitle} | ${c.description.slice(0, 160)}`).join("\n")}
+${candidates.map((c) => `- ${c.sourceId} | ${c.title} | ${c.published} | ${c.summary.slice(0, 200)}`).join("\n")}
 
-Choose at most ${MAX_SOURCES} to research. Return their exact videoIds.`,
+Choose at most ${MAX_SOURCES} to research. Return their exact sourceIds.`,
   });
 
   const chosen = picked.object.choices
-    .map((choice) => ({
-      choice,
-      video: candidates.find((c) => c.videoId === choice.videoId),
-    }))
-    .filter((entry): entry is { choice: { videoId: string; why: string }; video: (typeof candidates)[number] } =>
-      Boolean(entry.video),
+    .map((choice) => ({ choice, paper: candidates.find((c) => c.sourceId === choice.sourceId) }))
+    .filter(
+      (entry): entry is { choice: { sourceId: string; why: string }; paper: (typeof candidates)[number] } =>
+        Boolean(entry.paper),
     );
 
-  for (const { choice, video } of chosen) {
+  for (const { choice, paper } of chosen) {
     await mutateWorkspace(workspaceId, {
       type: "add_source",
-      source: { ...video, addedBy: TEAM.scout.label },
+      source: { ...paper, addedBy: TEAM.scout.label },
     });
-    await note(workspaceId, "scout", `Picked "${video.title}" — ${choice.why}`);
+    await note(workspaceId, "scout", `Picked "${paper.title}" — ${choice.why}`);
   }
 
   // ---- Reader: extract what each source actually claims -------------------
   await join(workspaceId, "reader");
 
-  for (const { video } of chosen) {
-    let transcriptText: string | null = null;
+  for (const { paper } of chosen) {
+    let fullText: string | null = null;
     try {
-      const transcript = await getTranscript(video.videoId);
+      const passages = await getFullText(paper.sourceId);
       await mutateWorkspace(workspaceId, {
-        type: "set_transcript",
-        videoId: video.videoId,
-        segments: transcript.segments,
-        from: TEAM.reader.label,
+        type: "set_passages",
+        sourceId: paper.sourceId,
+        passages,
       });
-      await indexTranscript(workspaceId, video.videoId, video.title, transcript.segments).catch(
-        () => {},
-      );
-      transcriptText = transcript.segments
-        .map((segment) => `[${segment.seconds}] ${segment.text}`)
-        .join("\n")
-        .slice(0, 24_000);
+      await indexPaper(workspaceId, paper.sourceId, paper.title, passages).catch(() => {});
+      fullText = passages
+        .map((passage) => `[${passage.section}] ${passage.text}`)
+        .join("\n\n")
+        .slice(0, 26_000);
     } catch {
       await mutateWorkspace(workspaceId, {
-        type: "set_transcript_error",
-        videoId: video.videoId,
-        message:
-          "No readable transcript from the server. Reader worked from the title and description instead.",
+        type: "set_fulltext_error",
+        sourceId: paper.sourceId,
+        message: "Full text was not available; Reader worked from the abstract instead.",
       });
     }
 
@@ -145,11 +136,8 @@ Choose at most ${MAX_SOURCES} to research. Return their exact videoIds.`,
         claims: z
           .array(
             z.object({
-              quote: z.string().describe("Verbatim words from the source."),
-              seconds: z
-                .number()
-                .nullable()
-                .describe("Start time in seconds, or null if not from a transcript."),
+              quote: z.string().describe("Verbatim words from the paper."),
+              section: z.string().describe("The section the quote came from, or 'Abstract'."),
               why: z.string().describe("Why this matters to the topic."),
             }),
           )
@@ -158,27 +146,23 @@ Choose at most ${MAX_SOURCES} to research. Return their exact videoIds.`,
       prompt: `${TEAM.reader.brief}
 
 Research topic: ${topic}
-Source: "${video.title}" by ${video.channelTitle}
+Paper: "${paper.title}" (${paper.published})
 
 ${
-  transcriptText
-    ? `Transcript, each line prefixed with its start time in seconds:\n${transcriptText}`
-    : `No transcript is available. Work only from this description, and set seconds to null:\n${video.description.slice(0, 2000)}`
+  fullText
+    ? `Full text, each paragraph prefixed with its section:\n${fullText}`
+    : `Only the abstract is available:\n${paper.summary}`
 }
 
-Extract at most 2 claims. Quote verbatim.`,
+Extract at most 2 claims. Quote verbatim, and keep each quote under 40 words so it can be located in the paper.`,
     });
 
     for (const claim of claims.object.claims) {
-      const seconds = transcriptText && claim.seconds !== null ? claim.seconds : null;
-      await note(
-        workspaceId,
-        "reader",
-        seconds === null ? `${claim.why} (from the description — no transcript)` : claim.why,
-        seconds === null
-          ? undefined
-          : { videoId: video.videoId, seconds: Math.max(0, Math.floor(seconds)), quote: claim.quote },
-      );
+      await note(workspaceId, "reader", claim.why, {
+        sourceId: paper.sourceId,
+        section: claim.section || (fullText ? "" : "Abstract"),
+        quote: claim.quote,
+      });
     }
   }
 
@@ -195,7 +179,7 @@ Extract at most 2 claims. Quote verbatim.`,
 Research topic: ${topic}
 
 Sources collected:
-${afterReading.sources.map((s) => `- ${s.title} (${s.channelTitle})`).join("\n")}
+${afterReading.sources.map((s) => `- ${s.title} (${s.published})`).join("\n")}
 
 Notes filed so far:
 ${afterReading.notes.map((n) => `- [${n.authorLabel}] ${n.anchor ? `"${n.anchor.quote}" — ` : ""}${n.text}`).join("\n")}

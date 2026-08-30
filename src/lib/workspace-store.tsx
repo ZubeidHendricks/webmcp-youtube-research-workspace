@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { VideoResult } from "@/lib/youtube/types";
+import type { PaperResult } from "@/lib/papers/types";
 import {
   emptyWorkspace,
   type Note,
@@ -25,7 +25,7 @@ export type { Note, Participant, Source };
 
 /** What the viewer is looking at. Per-browser, never shared. */
 export type Focus =
-  | { kind: "source"; videoId: string }
+  | { kind: "source"; sourceId: string }
   | { kind: "notes" }
   | { kind: "results" };
 
@@ -42,8 +42,8 @@ interface WorkspaceValue {
   readLive: () => WorkspaceState;
   identity: Identity;
   setIdentity: (identity: Identity) => Promise<void>;
-  results: VideoResult[];
-  setResults: (results: VideoResult[]) => void;
+  results: PaperResult[];
+  setResults: (results: PaperResult[]) => void;
   /**
    * The last search *this browser* ran, if any.
    *
@@ -129,7 +129,7 @@ export function WorkspaceProvider({
   children: ReactNode;
 }) {
   const [shared, setShared] = useState<WorkspaceState>(() => emptyWorkspace(workspaceId));
-  const [results, setResults] = useState<VideoResult[]>([]);
+  const [results, setResults] = useState<PaperResult[]>([]);
   const [lastQuery, setLastQuery] = useState<string | null>(null);
   const [focus, setFocus] = useState<Focus>({ kind: "results" });
   const [busy, setBusy] = useState(false);
@@ -234,7 +234,7 @@ export function WorkspaceProvider({
       identity,
       setIdentity,
       results,
-      setResults: (next: VideoResult[]) => setResults(next),
+      setResults: (next: PaperResult[]) => setResults(next),
       lastQuery,
       setLastQuery,
       focus,
@@ -247,7 +247,7 @@ export function WorkspaceProvider({
         const needle = query.trim().toLowerCase();
         const live = sharedRef.current.sources;
         return (
-          live.find((source) => source.videoId === query.trim()) ??
+          live.find((source) => source.sourceId === query.trim()) ??
           live.find((source) => source.title.toLowerCase() === needle) ??
           live.find((source) => source.title.toLowerCase().includes(needle))
         );

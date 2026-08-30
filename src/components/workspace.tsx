@@ -5,34 +5,32 @@ import { useWorkspace, type Focus, type Note, type Source } from "@/lib/workspac
 import { useWorkspaceActions } from "@/lib/workspace-actions";
 import { useResearchTeam } from "@/lib/team-client";
 import { useSourceQnA } from "@/lib/rag-client";
+import { abstractUrl, quoteUrl } from "@/lib/papers/types";
 import { isActive as isParticipantActive } from "@/lib/workspace/types";
 
-function watchUrl(videoId: string, seconds?: number) {
-  return `https://www.youtube.com/watch?v=${videoId}${seconds ? `&t=${seconds}s` : ""}`;
-}
 
-function isActive(focus: Focus, kind: Focus["kind"], videoId?: string) {
+
+function isActive(focus: Focus, kind: Focus["kind"], sourceId?: string) {
   if (focus.kind !== kind) return false;
-  return focus.kind === "source" ? focus.videoId === videoId : true;
+  return focus.kind === "source" ? focus.sourceId === sourceId : true;
 }
 
 export function Workspace() {
   const { shared, results, focus, busy, offline, identity, setFocus, apply } = useWorkspace();
   const { topic, sources, notes, participants } = shared;
-  const { searchOrCollect, collectSource, loadTranscript } = useWorkspaceActions();
+  const { searchOrCollect, collectSource, loadFullText } = useWorkspaceActions();
   const { dispatchTeam } = useResearchTeam();
   const { askAndRecord } = useSourceQnA();
   const [dispatching, setDispatching] = useState(false);
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [draftQuery, setDraftQuery] = useState("");
-  const [captionedOnly, setCaptionedOnly] = useState(true);
   const [draftNote, setDraftNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const activeSource =
     focus.kind === "source"
-      ? sources.find((source) => source.videoId === focus.videoId)
+      ? sources.find((source) => source.sourceId === focus.sourceId)
       : undefined;
 
   async function guard(action: () => Promise<unknown>) {
@@ -52,9 +50,9 @@ export function Workspace() {
           event.preventDefault();
           if (!draftQuery.trim()) return;
           void guard(async () => {
-            const outcome = await searchOrCollect(draftQuery.trim(), { captionedOnly });
+            const outcome = await searchOrCollect(draftQuery.trim());
             if (outcome.kind === "collected") {
-              setFocus({ kind: "source", videoId: outcome.source.videoId });
+              setFocus({ kind: "source", sourceId: outcome.source.sourceId });
               setDraftQuery("");
             } else {
               setFocus({ kind: "results" });
@@ -64,10 +62,10 @@ export function Workspace() {
       >
         <input
           className="flex-1 rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/50 dark:border-white/20"
-          placeholder="Search a topic, or paste a YouTube URL…"
+          placeholder="Search a topic, or paste an arXiv link…"
           value={draftQuery}
           onChange={(event) => setDraftQuery(event.target.value)}
-          aria-label="Search YouTube"
+          aria-label="Search arXiv"
         />
         <button
           type="submit"
@@ -100,23 +98,13 @@ export function Workspace() {
         </span>
       </div>
 
-      <label className="flex items-center gap-2 text-xs text-foreground/50">
-        <input
-          type="checkbox"
-          className="size-3.5 accent-current"
-          checked={captionedOnly}
-          onChange={(event) => setCaptionedOnly(event.target.checked)}
-        />
-        Prefer videos with caption tracks
-      </label>
-
       {error && (
         <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-900 dark:text-red-200">
           {error}
         </p>
       )}
 
-      {sources.some((source) => source.transcript?.length) && (
+      {sources.some((source) => source.passages?.length) && (
         <form
           className="flex gap-2"
           onSubmit={(event) => {
@@ -133,10 +121,10 @@ export function Workspace() {
         >
           <input
             className="flex-1 rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-foreground/50 dark:border-white/20"
-            placeholder="Ask the collected sources a question…"
+            placeholder="Ask the collected papers a question…"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            aria-label="Ask the sources"
+            aria-label="Ask the papers"
           />
           <button
             type="submit"
@@ -175,11 +163,11 @@ export function Workspace() {
             )}
             {sources.map((source) => (
               <button
-                key={source.videoId}
+                key={source.sourceId}
                 type="button"
-                onClick={() => setFocus({ kind: "source", videoId: source.videoId })}
-                aria-current={isActive(focus, "source", source.videoId)}
-                className={tabClass(isActive(focus, "source", source.videoId))}
+                onClick={() => setFocus({ kind: "source", sourceId: source.sourceId })}
+                aria-current={isActive(focus, "source", source.sourceId)}
+                className={tabClass(isActive(focus, "source", source.sourceId))}
                 title={source.title}
               >
                 <span className="line-clamp-2 text-left">{source.title}</span>
@@ -191,8 +179,8 @@ export function Workspace() {
         <main className="min-w-0">
           {focus.kind === "results" && (
             <ResultsPane
-              onCollect={(videoId) => void guard(() => collectSource(videoId))}
-              collected={new Set(sources.map((source) => source.videoId))}
+              onCollect={(sourceId) => void guard(() => collectSource(sourceId))}
+              collected={new Set(sources.map((source) => source.sourceId))}
             />
           )}
 
@@ -225,20 +213,20 @@ export function Workspace() {
             (activeSource ? (
               <SourcePane
                 source={activeSource}
-                onLoadTranscript={() => {
-                  // A missing transcript is an expected outcome, not an app error:
+                onLoadFullText={() => {
+                  // A missing full text is an expected outcome, not an app error:
                   // it is already reported on the source itself, so don't also
                   // raise the page-level error banner and say it twice.
                   setError(null);
-                  void loadTranscript(activeSource.videoId).catch(() => {});
+                  void loadFullText(activeSource.sourceId).catch(() => {});
                 }}
                 onRemove={() => {
                   void guard(async () => {
-                    await apply({ type: "remove_source", videoId: activeSource.videoId });
+                    await apply({ type: "remove_source", sourceId: activeSource.sourceId });
                     setFocus({ kind: "results" });
                   });
                 }}
-                onCite={(seconds, timestamp, quote) => {
+                onCite={(section, quote) => {
                   void guard(async () => {
                     await apply({
                       type: "add_note",
@@ -247,7 +235,7 @@ export function Workspace() {
                         authorLabel: identity.label,
                         authorKind: identity.kind,
                         text: "",
-                        anchor: { videoId: activeSource.videoId, seconds, timestamp, quote },
+                        anchor: { sourceId: activeSource.sourceId, section, quote },
                       },
                     });
                     setFocus({ kind: "notes" });
@@ -296,7 +284,7 @@ function ResultsPane({
   onCollect,
   collected,
 }: {
-  onCollect: (videoId: string) => void;
+  onCollect: (sourceId: string) => void;
   collected: Set<string>;
 }) {
   const { results, lastQuery } = useWorkspace();
@@ -305,8 +293,8 @@ function ResultsPane({
   if (results.length === 0 && lastQuery) {
     return (
       <p className="text-sm text-foreground/50">
-        No results for &ldquo;{lastQuery}&rdquo;. Try different wording, or untick
-        &ldquo;prefer videos with caption tracks&rdquo; to widen the search.
+        No papers found for &ldquo;{lastQuery}&rdquo;. Try different wording — arXiv matches
+        on title, abstract and authors.
       </p>
     );
   }
@@ -314,40 +302,38 @@ function ResultsPane({
   if (results.length === 0) {
     return (
       <p className="text-sm text-foreground/50">
-        Search a topic or paste a YouTube URL above, send the research team, or ask your
-        agent to find sources. Anything collected appears under Sources.
+        Search a topic or paste an arXiv link above, send the research team, or ask your agent
+        to find sources. Anything collected appears under Sources.
       </p>
     );
   }
 
   return (
     <ul className="flex flex-col divide-y divide-black/10 dark:divide-white/10">
-      {results.map((video) => (
-        <li key={video.videoId} className="flex gap-3 py-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={video.thumbnail}
-            alt=""
-            className="h-16 w-28 shrink-0 rounded object-cover"
-          />
+      {results.map((paper) => (
+        <li key={paper.sourceId} className="flex gap-3 py-3">
           <div className="min-w-0 flex-1">
             <a
-              href={watchUrl(video.videoId)}
+              href={abstractUrl(paper.sourceId)}
               target="_blank"
               rel="noreferrer"
-              className="line-clamp-2 text-sm font-medium hover:underline"
+              className="text-sm font-medium hover:underline"
             >
-              {video.title}
+              {paper.title}
             </a>
-            <p className="mt-0.5 text-xs text-foreground/50">{video.channelTitle}</p>
+            <p className="mt-0.5 text-xs text-foreground/50">
+              {paper.authors.slice(0, 3).join(", ")}
+              {paper.authors.length > 3 && " et al."} · {paper.published}
+            </p>
+            <p className="mt-1 line-clamp-2 text-xs text-foreground/60">{paper.summary}</p>
           </div>
           <button
             type="button"
-            onClick={() => onCollect(video.videoId)}
-            disabled={collected.has(video.videoId)}
+            onClick={() => onCollect(paper.sourceId)}
+            disabled={collected.has(paper.sourceId)}
             className="h-fit shrink-0 rounded-md border border-black/15 px-2.5 py-1 text-xs transition-colors hover:bg-black/5 disabled:opacity-40 dark:border-white/20 dark:hover:bg-white/10"
           >
-            {collected.has(video.videoId) ? "Collected" : "Collect"}
+            {collected.has(paper.sourceId) ? "Collected" : "Collect"}
           </button>
         </li>
       ))}
@@ -357,28 +343,31 @@ function ResultsPane({
 
 function SourcePane({
   source,
-  onLoadTranscript,
+  onLoadFullText,
   onRemove,
   onCite,
 }: {
   source: Source;
-  onLoadTranscript: () => void;
+  onLoadFullText: () => void;
   onRemove: () => void;
-  onCite: (seconds: number, timestamp: string, quote: string) => void;
+  onCite: (section: string, quote: string) => void;
 }) {
   return (
     <article className="flex flex-col gap-4">
       <header className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <a
-            href={watchUrl(source.videoId)}
+            href={abstractUrl(source.sourceId)}
             target="_blank"
             rel="noreferrer"
             className="text-sm font-medium hover:underline"
           >
             {source.title}
           </a>
-          <p className="mt-0.5 text-xs text-foreground/50">{source.channelTitle}</p>
+          <p className="mt-0.5 text-xs text-foreground/50">
+            {source.authors.slice(0, 4).join(", ")}
+            {source.authors.length > 4 && " et al."} · {source.published} · {source.sourceId}
+          </p>
         </div>
         <button
           type="button"
@@ -389,66 +378,46 @@ function SourcePane({
         </button>
       </header>
 
-      {source.transcript ? (
-        <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto pr-1">
-          {source.transcript.map((segment, index) => (
-            <li key={`${segment.seconds}-${index}`} className="group flex gap-2 text-sm">
-              <a
-                href={watchUrl(source.videoId, segment.seconds)}
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0 font-mono text-xs text-foreground/40 hover:text-foreground hover:underline"
-              >
-                {segment.timestamp}
-              </a>
-              <span className="flex-1">{segment.text}</span>
-              <button
-                type="button"
-                onClick={() => onCite(segment.seconds, segment.timestamp, segment.text)}
-                className="h-fit shrink-0 rounded px-1.5 py-0.5 text-xs text-foreground/0 transition-colors group-hover:text-foreground/50 hover:bg-black/5 hover:!text-foreground dark:hover:bg-white/10"
-              >
-                Cite
-              </button>
-            </li>
+      {source.passages ? (
+        <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto pr-1">
+          {source.passages.map((passage, index) => (
+            <div key={index} className="group flex flex-col gap-1">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-foreground/40">
+                  {passage.section}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onCite(passage.section, passage.text)}
+                  className="rounded px-1.5 py-0.5 text-xs text-foreground/0 transition-colors group-hover:text-foreground/50 hover:bg-black/5 hover:!text-foreground dark:hover:bg-white/10"
+                >
+                  Cite
+                </button>
+              </div>
+              <p className="text-sm leading-relaxed">{passage.text}</p>
+            </div>
           ))}
-        </ul>
-      ) : source.transcriptError ? (
+        </div>
+      ) : source.fullTextError ? (
         <div className="flex flex-col gap-3">
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
-            {source.transcriptError}
+            {source.fullTextError}
           </p>
-          <TranscriptFallback />
+          <p className="text-sm text-foreground/60">{source.summary}</p>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={onLoadTranscript}
-          className="w-fit rounded-md border border-black/15 px-3 py-1.5 text-sm transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
-        >
-          Load transcript
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={onLoadFullText}
+            className="w-fit rounded-md border border-black/15 px-3 py-1.5 text-sm transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+          >
+            Read the full text
+          </button>
+          <p className="text-sm text-foreground/60">{source.summary}</p>
+        </div>
       )}
     </article>
-  );
-}
-
-/**
- * Shown when a transcript can't be fetched server-side.
- *
- * Finding the words is the agent's job, never the researcher's: it reads the video
- * and sends the lines back with `provide_transcript`, after which this pane renders
- * a normal citable transcript. There is deliberately no hand-entry form here.
- */
-function TranscriptFallback() {
-  return (
-    <div className="rounded-md border border-black/10 px-3 py-2.5 text-sm dark:border-white/15">
-      <p className="font-medium">Ask your agent to read this one.</p>
-      <p className="mt-1 text-foreground/60">
-        It can watch the video and send the transcript back with{" "}
-        <code className="font-mono text-xs">provide_transcript</code> — the lines land here
-        and become citable, exactly like a fetched transcript.
-      </p>
-    </div>
   );
 }
 
@@ -510,14 +479,19 @@ function NotesPane({
                 {note.anchor && (
                   <p className="text-foreground/80">
                     <a
-                      href={watchUrl(note.anchor.videoId, note.anchor.seconds)}
+                      href={quoteUrl(note.anchor.sourceId, note.anchor.quote)}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-mono text-xs text-foreground/40 hover:text-foreground hover:underline"
+                      title="Open the paper at this passage"
+                      className="italic hover:underline"
                     >
-                      {note.anchor.timestamp}
-                    </a>{" "}
-                    <span className="italic">&ldquo;{note.anchor.quote}&rdquo;</span>
+                      &ldquo;{note.anchor.quote}&rdquo;
+                    </a>
+                    {note.anchor.section && (
+                      <span className="ml-1 font-mono text-[10px] uppercase tracking-wide text-foreground/40">
+                        {note.anchor.section}
+                      </span>
+                    )}
                   </p>
                 )}
                 {note.text && <p className="mt-1">{note.text}</p>}

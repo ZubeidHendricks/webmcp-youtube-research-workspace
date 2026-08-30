@@ -5,26 +5,25 @@ import { useWorkspace } from "@/lib/workspace-store";
 
 export interface AskAnswer {
   answer: string;
-  citations: { videoId: string; title: string; seconds: number; timestamp: string; quote: string }[];
+  citations: { sourceId: string; title: string; section: string; quote: string }[];
   passagesConsidered: number;
 }
 
 /**
- * Question answering over the transcripts collected in this workspace.
+ * Question answering over the papers collected in this workspace.
  *
- * Indexing is fire-and-forget: it happens whenever a transcript arrives, by any
- * route — a server fetch, or an agent calling `provide_transcript` — so asking a
- * question never has to wait for an explicit "index this" step.
+ * Indexing is fire-and-forget: it happens whenever a paper's full text arrives,
+ * so asking a question never waits on an explicit "index this" step.
  */
 export function useSourceQnA() {
   const { workspaceId, apply, identity } = useWorkspace();
 
   const indexSource = useCallback(
-    (videoId: string) => {
+    (sourceId: string) => {
       void fetch(`/api/workspace/${workspaceId}/index-source`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ videoId }),
+        body: JSON.stringify({ sourceId }),
       }).catch(() => {});
     },
     [workspaceId],
@@ -68,9 +67,8 @@ export function useSourceQnA() {
             authorKind: identity.kind,
             text: `Supports: ${question}`,
             anchor: {
-              videoId: citation.videoId,
-              seconds: citation.seconds,
-              timestamp: citation.timestamp,
+              sourceId: citation.sourceId,
+              section: citation.section,
               quote: citation.quote,
             },
           },

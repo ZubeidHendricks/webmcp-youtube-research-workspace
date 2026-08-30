@@ -129,24 +129,24 @@ export async function mutateWorkspace(
 
     case "add_source": {
       const source: Source = { ...op.source, addedAt: now };
-      // HSETNX: first writer wins, so two agents collecting the same video is safe.
-      await r.hsetnx(k.sources, op.source.videoId, JSON.stringify(source));
+      // HSETNX: first writer wins, so two agents collecting the same paper is safe.
+      await r.hsetnx(k.sources, op.source.sourceId, JSON.stringify(source));
       break;
     }
 
     case "remove_source":
-      await r.hdel(k.sources, op.videoId);
+      await r.hdel(k.sources, op.sourceId);
       break;
 
-    case "set_transcript":
-    case "set_transcript_error": {
-      const current = parse<Source>(await r.hget(k.sources, op.videoId));
+    case "set_passages":
+    case "set_fulltext_error": {
+      const current = parse<Source>(await r.hget(k.sources, op.sourceId));
       if (!current) break;
       const updated: Source =
-        op.type === "set_transcript"
-          ? { ...current, transcript: op.segments, transcriptError: undefined, transcriptFrom: op.from }
-          : { ...current, transcriptError: op.message };
-      await r.hset(k.sources, { [op.videoId]: JSON.stringify(updated) });
+        op.type === "set_passages"
+          ? { ...current, passages: op.passages, fullTextError: undefined }
+          : { ...current, fullTextError: op.message };
+      await r.hset(k.sources, { [op.sourceId]: JSON.stringify(updated) });
       break;
     }
 
