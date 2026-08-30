@@ -38,6 +38,33 @@ at once is the normal case here, not an edge case. With `RPUSH` for notes and `H
 sources, 20 parallel notes from three agents all survive, and eight simultaneous collects of
 the same video collapse to one source.
 
+## Asking the sources
+
+Once a source has a transcript — fetched, supplied by an agent, or pulled in by the research
+team — it is indexed for retrieval, and `ask_sources` (or the ask box above the panes)
+answers questions from it:
+
+> **Q:** Why is it hard to audit what these systems do after they run?
+> **A:** …the agents are non-deterministic and the existing logging wasn't built to capture
+> their actions for later review.
+> — *"The hardest part is not building the agent. It is knowing what it did after the fact…"* @ **3:30**
+
+Retrieval runs across every source at once, so it answers cross-source questions — where
+several videos agree, and where they conflict. The answer and each supporting quote are
+filed into the notes, so an answer becomes part of the shared artifact rather than a message
+that scrolls away.
+
+**How it works.** Caption lines are merged into overlapping ~700-character windows that keep
+their start time, embedded by Upstash Vector's hosted model into a per-workspace namespace.
+The question is embedded the same way, so wording that appears nowhere in the transcript
+still retrieves the right passage. The model answers only from retrieved passages and says
+when they don't cover the question.
+
+**Citations point at the line, not the window.** A 700-character window starting at 0:20 can
+contain words spoken minutes later, so stamping a citation with the window's start time sends
+you to the wrong moment. Each quote is matched back to the caption line that actually
+contains it — exactly where possible, by word overlap where the model stitched across lines.
+
 ## The research team
 
 `dispatch_research_team` puts four agents on a topic. They are not a chat thread — each
@@ -95,6 +122,7 @@ port of the old one.
 
 - **Groq** — runs the research team's models (`openai/gpt-oss-120b`) via the Vercel AI SDK.
 - **Upstash Redis** — shared workspace state, provisioned through the Vercel Marketplace.
+- **Upstash Vector** — transcript embeddings and retrieval, using its hosted embedding model.
 - **YouTube Data API v3** — used with a developer API key for search and video metadata, in
   the manner the API is published for.
 - **Caption retrieval** (`youtube-transcript`) reads YouTube's caption endpoints directly
@@ -113,6 +141,7 @@ port of the old one.
 | `add_note` | Adds a freeform note — a synthesis, question, or next step |
 | `read_workspace` | Reads current topic, sources, and all notes (including the human's) |
 | `set_focus` | Changes what the researcher sees on screen |
+| `ask_sources` | Answers a question from the collected transcripts, with quoted timestamped evidence |
 | `dispatch_research_team` | Puts a four-agent team on a topic; they join and file into the workspace |
 | `join_workspace` | Announces an agent under a name so its contributions are labelled |
 | `list_participants` | Shows who else — person or agent — is working here, and what they filed |
@@ -162,6 +191,8 @@ src/
   lib/webmcp/support.ts          Feature detection
   lib/workspace-store.tsx        Shared state: topic, sources, notes, focus
   lib/workspace-actions.ts       Operations the UI and the tools both call
+  lib/rag/index-transcript.ts    Chunking + Upstash Vector indexing and retrieval
+  lib/rag/ask.ts                 Grounded answering, with citations re-anchored to real lines
   lib/team/run.ts                The four-role research team pipeline
   lib/workspace/server.ts        Redis-backed shared state
   lib/youtube/client.ts          Quota-rotating YouTube Data API pool
