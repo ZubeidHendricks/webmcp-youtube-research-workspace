@@ -3,9 +3,9 @@ import "./globals.css";
 import { WebMcpSimulator } from "@/components/webmcp-simulator";
 
 export const metadata: Metadata = {
-  title: "YouGo",
+  title: "Dispatch",
   description:
-    "A shared research workspace where people and their agents collect video sources and build cited notes together, powered by WebMCP.",
+    "A shared room where media buyers and their agents write the weekly ad-account decision memo together — every finding cited, powered by WebMCP.",
 };
 
 export default function RootLayout({

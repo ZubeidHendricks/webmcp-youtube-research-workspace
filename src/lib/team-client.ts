@@ -1,50 +1,20 @@
 "use client";
 
 import { useCallback } from "react";
-import { useWorkspace } from "@/lib/workspace-store";
-import { isUnsupportedLink } from "@/lib/papers/types";
+import { useRoom } from "@/lib/room-store";
 
 /**
- * Dispatching the research team.
+ * Dispatching the analyst team.
  *
- * The run takes a minute or two and makes several model calls, so the request is
- * deliberately not awaited: the team writes into the shared workspace as it goes
- * and the page's polling shows it arriving. Blocking the caller would just hide
- * the most interesting part.
+ * The run makes several model calls, so the request is deliberately not awaited:
+ * the team files into the room as it goes and the page's polling shows the memo
+ * assembling. Blocking the caller would hide the most interesting part.
  */
-export function useResearchTeam() {
-  const { workspaceId, apply, identity } = useWorkspace();
+export function useAnalystTeam() {
+  const { roomId } = useRoom();
 
-  const dispatchTeam = useCallback(
-    async (topic: string) => {
-      if (isUnsupportedLink(topic)) {
-        throw new Error(
-          "The research team searches arXiv. Give it a topic to research rather than a link.",
-        );
-      }
-
-      // Set the topic immediately so the researcher sees something happened.
-      await apply({ type: "set_topic", topic });
-      await apply({
-        type: "add_note",
-        note: {
-          authorId: identity.id,
-          authorLabel: identity.label,
-          authorKind: identity.kind,
-          text: `Put the research team on "${topic}".`,
-        },
-      });
-
-      void fetch(`/api/workspace/${workspaceId}/team`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ topic }),
-      }).catch(() => {});
-
-      return `Research team dispatched on "${topic}". Scout, Reader, Critic and Synthesist will join and file into this workspace over the next minute or two — call read_workspace again shortly to see what they found.`;
-    },
-    [apply, identity, workspaceId],
-  );
-
-  return { dispatchTeam };
+  return useCallback(async () => {
+    void fetch(`/api/room/${roomId}/team`, { method: "POST" }).catch(() => {});
+    return "Analyst team dispatched. Analyst, Skeptic and Strategist will join and work through the account over the next minute or two — call read_memo again shortly to see what they filed.";
+  }, [roomId]);
 }

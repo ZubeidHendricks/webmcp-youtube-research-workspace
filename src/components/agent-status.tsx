@@ -45,12 +45,12 @@ export function AgentStatus() {
           <>
             <strong className="font-semibold">Agent tools active.</strong> This page has
             registered its
-            research tools with the browser — ask your agent to find papers, read them,
-            and file citations.
+            tools with the browser — ask your agent to read the account and file what it
+            sees.
           </>
         ) : (
           <>
-            <strong className="font-semibold">No agent detected.</strong> The workspace works
+            <strong className="font-semibold">No agent detected.</strong> The room works
             normally here. To try the agent tools, open it in ChatGPT&rsquo;s browser or in
             Chrome 149+ with the WebMCP flag enabled.
           </>

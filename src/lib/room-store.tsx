@@ -11,23 +11,22 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { PaperResult } from "@/lib/papers/types";
-import {
-  emptyWorkspace,
-  type Note,
-  type Participant,
-  type Source,
-  type WorkspaceOp,
-  type WorkspaceState,
-} from "@/lib/workspace/types";
 
-export type { Note, Participant, Source };
+import {
+  emptyRoom,
+  type Finding,
+  type Participant,
+  type RoomOp,
+  type RoomState,
+} from "@/lib/room/types";
+
+export type { Finding, Participant };
 
 /** What the viewer is looking at. Per-browser, never shared. */
 export type Focus =
-  | { kind: "source"; sourceId: string }
-  | { kind: "notes" }
-  | { kind: "results" };
+  | { kind: "memo" }
+  | { kind: "campaigns" }
+  | { kind: "entity"; entityId: string };
 
 export interface Identity {
   id: string;
@@ -35,31 +34,19 @@ export interface Identity {
   kind: "human" | "agent";
 }
 
-interface WorkspaceValue {
-  workspaceId: string;
-  shared: WorkspaceState;
+interface RoomValue {
+  roomId: string;
+  shared: RoomState;
   /** Readable synchronously right after a mutation — tools chain calls faster than React renders. */
-  readLive: () => WorkspaceState;
+  readLive: () => RoomState;
   identity: Identity;
   setIdentity: (identity: Identity) => Promise<void>;
-  results: PaperResult[];
-  setResults: (results: PaperResult[]) => void;
-  /**
-   * The last search *this browser* ran, if any.
-   *
-   * Distinct from the shared `topic`: the topic is set by anyone in the workspace
-   * (the research team sets it too), so using it to decide "no results" told every
-   * other viewer their search had failed when they had never searched at all.
-   */
-  lastQuery: string | null;
-  setLastQuery: (query: string | null) => void;
   focus: Focus;
   setFocus: (focus: Focus) => void;
   busy: boolean;
   setBusy: (busy: boolean) => void;
   offline: string | null;
-  apply: (op: WorkspaceOp) => Promise<WorkspaceState>;
-  findSource: (query: string) => Source | undefined;
+  apply: (op: RoomOp) => Promise<RoomState>;
 }
 
 /**
@@ -74,35 +61,35 @@ const identityCache = new Map<string, Identity>();
 const identityListeners = new Set<() => void>();
 const SERVER_IDENTITY: Identity = { id: "pending", label: "You", kind: "human" };
 
-function identityKey(workspaceId: string) {
-  return `webmcp-identity:${workspaceId}`;
+function identityKey(roomId: string) {
+  return `dispatch-identity:${roomId}`;
 }
 
-function loadIdentity(workspaceId: string): Identity {
-  const cached = identityCache.get(workspaceId);
+function loadIdentity(roomId: string): Identity {
+  const cached = identityCache.get(roomId);
   if (cached) return cached;
 
   let identity: Identity | null = null;
   try {
-    const raw = window.localStorage.getItem(identityKey(workspaceId));
+    const raw = window.localStorage.getItem(identityKey(roomId));
     if (raw) identity = JSON.parse(raw) as Identity;
   } catch {
     // private mode or blocked storage
   }
   const resolved = identity ?? { id: crypto.randomUUID(), label: "You", kind: "human" };
-  identityCache.set(workspaceId, resolved);
+  identityCache.set(roomId, resolved);
   try {
-    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(resolved));
+    window.localStorage.setItem(identityKey(roomId), JSON.stringify(resolved));
   } catch {
     // non-fatal
   }
   return resolved;
 }
 
-function storeIdentity(workspaceId: string, identity: Identity) {
-  identityCache.set(workspaceId, identity);
+function storeIdentity(roomId: string, identity: Identity) {
+  identityCache.set(roomId, identity);
   try {
-    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(identity));
+    window.localStorage.setItem(identityKey(roomId), JSON.stringify(identity));
   } catch {
     // non-fatal
   }
@@ -114,34 +101,32 @@ function subscribeIdentity(listener: () => void) {
   return () => identityListeners.delete(listener);
 }
 
-const WorkspaceContext = createContext<WorkspaceValue | null>(null);
+const RoomContext = createContext<RoomValue | null>(null);
 
 const POLL_MS = 2000;
 /** How often a tab re-announces itself so it isn't pruned as gone. */
 const HEARTBEAT_MS = 30_000;
 
-export function WorkspaceProvider({
-  workspaceId,
+export function RoomProvider({
+  roomId,
   children,
 }: {
-  workspaceId: string;
+  roomId: string;
   children: ReactNode;
 }) {
-  const [shared, setShared] = useState<WorkspaceState>(() => emptyWorkspace(workspaceId));
-  const [results, setResults] = useState<PaperResult[]>([]);
-  const [lastQuery, setLastQuery] = useState<string | null>(null);
-  const [focus, setFocus] = useState<Focus>({ kind: "results" });
+  const [shared, setShared] = useState<RoomState>(() => emptyRoom(roomId));
+  const [focus, setFocus] = useState<Focus>({ kind: "memo" });
   const [busy, setBusy] = useState(false);
   const [offline, setOffline] = useState<string | null>(null);
   const identity = useSyncExternalStore(
     subscribeIdentity,
-    () => loadIdentity(workspaceId),
+    () => loadIdentity(roomId),
     () => SERVER_IDENTITY,
   );
 
   const sharedRef = useRef(shared);
 
-  const commit = useCallback((next: WorkspaceState) => {
+  const commit = useCallback((next: RoomState) => {
     // Ignore stale responses that lost a race with a newer poll or write.
     if (next.version < sharedRef.current.version) return;
     sharedRef.current = next;
@@ -149,35 +134,35 @@ export function WorkspaceProvider({
   }, []);
 
   const apply = useCallback(
-    async (op: WorkspaceOp) => {
-      const response = await fetch(`/api/workspace/${workspaceId}`, {
+    async (op: RoomOp) => {
+      const response = await fetch(`/api/room/${roomId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(op),
       });
-      const body = (await response.json()) as WorkspaceState & { error?: string };
+      const body = (await response.json()) as RoomState & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not apply the change.");
       commit(body);
       setOffline(null);
       return body;
     },
-    [workspaceId, commit],
+    [roomId, commit],
   );
 
   // Announce this browser to the workspace once.
   useEffect(() => {
-    void fetch(`/api/workspace/${workspaceId}`, {
+    void fetch(`/api/room/${roomId}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         type: "join",
-        participant: loadIdentity(workspaceId),
-      } satisfies WorkspaceOp),
+        participant: loadIdentity(roomId),
+      } satisfies RoomOp),
     })
       .then((response) => (response.ok ? response.json() : null))
-      .then((state: WorkspaceState | null) => state && commit(state))
+      .then((state: RoomState | null) => state && commit(state))
       .catch(() => setOffline("Working offline — changes are not being shared."));
-  }, [workspaceId, commit]);
+  }, [roomId, commit]);
 
   // Poll for what everyone else is doing, and check in so we stay listed.
   useEffect(() => {
@@ -190,18 +175,18 @@ export function WorkspaceProvider({
         sinceHeartbeat += POLL_MS;
         if (sinceHeartbeat >= HEARTBEAT_MS) {
           sinceHeartbeat = 0;
-          void fetch(`/api/workspace/${workspaceId}`, {
+          void fetch(`/api/room/${roomId}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               type: "join",
-              participant: loadIdentity(workspaceId),
-            } satisfies WorkspaceOp),
+              participant: loadIdentity(roomId),
+            } satisfies RoomOp),
           }).catch(() => {});
         }
-        const response = await fetch(`/api/workspace/${workspaceId}`, { cache: "no-store" });
+        const response = await fetch(`/api/room/${roomId}`, { cache: "no-store" });
         if (response.ok && !cancelled) {
-          commit((await response.json()) as WorkspaceState);
+          commit((await response.json()) as RoomState);
           setOffline(null);
         }
       } catch {
@@ -215,51 +200,38 @@ export function WorkspaceProvider({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [workspaceId, commit]);
+  }, [roomId, commit]);
 
   const setIdentity = useCallback(
     async (next: Identity) => {
-      storeIdentity(workspaceId, next);
+      storeIdentity(roomId, next);
       await apply({ type: "join", participant: next });
     },
-    [apply, workspaceId],
+    [apply, roomId],
   );
 
-  const value = useMemo<WorkspaceValue>(
+  const value = useMemo<RoomValue>(
     () => ({
-      workspaceId,
+      roomId,
       shared,
       readLive: () => sharedRef.current,
       identity,
       setIdentity,
-      results,
-      setResults: (next: PaperResult[]) => setResults(next),
-      lastQuery,
-      setLastQuery,
       focus,
       setFocus,
       busy,
       setBusy,
       offline,
       apply,
-      findSource: (query) => {
-        const needle = query.trim().toLowerCase();
-        const live = sharedRef.current.sources;
-        return (
-          live.find((source) => source.sourceId === query.trim()) ??
-          live.find((source) => source.title.toLowerCase() === needle) ??
-          live.find((source) => source.title.toLowerCase().includes(needle))
-        );
-      },
     }),
-    [workspaceId, shared, identity, setIdentity, results, lastQuery, focus, busy, offline, apply],
+    [roomId, shared, identity, setIdentity, focus, busy, offline, apply],
   );
 
-  return <WorkspaceContext value={value}>{children}</WorkspaceContext>;
+  return <RoomContext value={value}>{children}</RoomContext>;
 }
 
-export function useWorkspace() {
-  const value = useContext(WorkspaceContext);
-  if (!value) throw new Error("useWorkspace must be used inside <WorkspaceProvider>");
+export function useRoom() {
+  const value = useContext(RoomContext);
+  if (!value) throw new Error("useRoom must be used inside <RoomProvider>");
   return value;
 }
