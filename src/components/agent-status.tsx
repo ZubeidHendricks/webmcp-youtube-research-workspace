@@ -45,8 +45,8 @@ export function AgentStatus() {
           <>
             <strong className="font-semibold">Agent tools active.</strong> This page has
             registered its
-            research tools with the browser — ask your agent to find sources, read
-            transcripts, and file citations.
+            research tools with the browser — ask your agent to find papers, read them,
+            and file citations.
           </>
         ) : (
           <>

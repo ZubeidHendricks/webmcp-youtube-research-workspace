@@ -27,10 +27,10 @@ function count(n: number, singular: string): string {
  * of the researcher — and the researcher's own clicks are visible to the agent
  * on its next `read_workspace` call.
  *
- * Safety (https://developer.chrome.com/docs/ai/webmcp/secure-tools): transcript
- * text is untrusted third-party content, so it is returned as data the agent
- * summarizes — no tool here acts on instructions found inside a transcript, and
- * every input is validated before use.
+ * Safety (https://developer.chrome.com/docs/ai/webmcp/secure-tools): paper text
+ * is untrusted third-party content, so it is returned as data the agent
+ * summarizes — no tool here acts on instructions found inside a paper, and every
+ * input is validated before use.
  */
 export function ResearchTools() {
   const { results, focus, setFocus, findSource, readLive, apply, identity, setIdentity } =

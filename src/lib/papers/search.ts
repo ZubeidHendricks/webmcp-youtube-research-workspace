@@ -4,9 +4,8 @@ import type { PaperResult } from "./types";
 /**
  * arXiv search and metadata.
  *
- * The public API needs no key and imposes no quota worth pooling, so unlike the
- * YouTube path this is a plain fetch. arXiv asks for one request at a time and a
- * descriptive user agent.
+ * The public API needs no key and imposes no quota worth pooling, so this is a
+ * plain fetch. arXiv asks for one request at a time and a descriptive user agent.
  */
 const API = "https://export.arxiv.org/api/query";
 const HEADERS = { "user-agent": "YouGo/1.0 (research workspace; +https://yougo.k53.tech)" };

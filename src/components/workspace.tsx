@@ -474,7 +474,7 @@ function NotesPane({
 
       {notes.length === 0 ? (
         <p className="text-sm text-foreground/50">
-          No notes yet. Cite a transcript moment, or ask your agent to.
+          No notes yet. Cite a passage from a paper, or ask your agent to.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-black/10 dark:divide-white/10">

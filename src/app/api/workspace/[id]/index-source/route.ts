@@ -42,6 +42,6 @@ export async function POST(
     return NextResponse.json({ chunks, title: source.title });
   } catch (error) {
     console.error("[api/workspace/index-source]", error);
-    return NextResponse.json({ error: "Could not index that transcript." }, { status: 502 });
+    return NextResponse.json({ error: "Could not index that paper." }, { status: 502 });
   }
 }
