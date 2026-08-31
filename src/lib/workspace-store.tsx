@@ -65,11 +65,10 @@ interface WorkspaceValue {
 /**
  * Identity lives outside React so it can be read during render.
  *
- * Scoped to the *tab* (sessionStorage), not the browser: two tabs on one machine
- * are two participants, which is how anyone will try this — and how a person and
- * their agent can appear separately. A reload keeps the same identity, so your
- * notes stay attributed to you; participants that stop checking in are pruned
- * server-side.
+ * Stored per browser and workspace, not per tab: sessionStorage gave every tab
+ * and every reload a fresh identity, so the participant list filled up with
+ * repeated "You" entries that never went away. One browser is one participant;
+ * an agent that wants its own name says so with `join_workspace`.
  */
 const identityCache = new Map<string, Identity>();
 const identityListeners = new Set<() => void>();
@@ -85,7 +84,7 @@ function loadIdentity(workspaceId: string): Identity {
 
   let identity: Identity | null = null;
   try {
-    const raw = window.sessionStorage.getItem(identityKey(workspaceId));
+    const raw = window.localStorage.getItem(identityKey(workspaceId));
     if (raw) identity = JSON.parse(raw) as Identity;
   } catch {
     // private mode or blocked storage
@@ -93,7 +92,7 @@ function loadIdentity(workspaceId: string): Identity {
   const resolved = identity ?? { id: crypto.randomUUID(), label: "You", kind: "human" };
   identityCache.set(workspaceId, resolved);
   try {
-    window.sessionStorage.setItem(identityKey(workspaceId), JSON.stringify(resolved));
+    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(resolved));
   } catch {
     // non-fatal
   }
@@ -103,7 +102,7 @@ function loadIdentity(workspaceId: string): Identity {
 function storeIdentity(workspaceId: string, identity: Identity) {
   identityCache.set(workspaceId, identity);
   try {
-    window.sessionStorage.setItem(identityKey(workspaceId), JSON.stringify(identity));
+    window.localStorage.setItem(identityKey(workspaceId), JSON.stringify(identity));
   } catch {
     // non-fatal
   }

@@ -28,6 +28,13 @@ export function extractPaperId(input: string): string | null {
   return match ? match[1] : null;
 }
 
+/** True for a link to somewhere this app cannot read — YouTube, a blog, a PDF host. */
+export function isUnsupportedLink(input: string): boolean {
+  const value = input.trim();
+  if (!/^https?:\/\//i.test(value)) return false;
+  return extractPaperId(value) === null;
+}
+
 export function abstractUrl(sourceId: string): string {
   return `https://arxiv.org/abs/${sourceId}`;
 }

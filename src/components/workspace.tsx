@@ -18,6 +18,20 @@ function isActive(focus: Focus, kind: Focus["kind"], sourceId?: string) {
 export function Workspace() {
   const { shared, results, focus, busy, offline, identity, setFocus, apply } = useWorkspace();
   const { topic, sources, notes, participants } = shared;
+
+  /**
+   * Who to name in the footer.
+   *
+   * Anyone still checking in, plus anyone who left something behind. A browser
+   * that opened the link once and wandered off is not a collaborator, and
+   * listing it forever just makes the line unreadable.
+   */
+  const visibleParticipants = participants.filter(
+    (p) =>
+      isParticipantActive(p) ||
+      p.id === identity.id ||
+      notes.some((note) => note.authorId === p.id),
+  );
   const { searchOrCollect, collectSource, loadFullText } = useWorkspaceActions();
   const { dispatchTeam } = useResearchTeam();
   const { askAndRecord } = useSourceQnA();
@@ -252,9 +266,9 @@ export function Workspace() {
         {topic && <span>Topic: {topic}</span>}
         <span>
           In this workspace:{" "}
-          {participants.length === 0
+          {visibleParticipants.length === 0
             ? "just you"
-            : participants.map((p, index) => (
+            : visibleParticipants.map((p, index) => (
                 <span
                   key={p.id}
                   className={isParticipantActive(p) ? undefined : "opacity-50"}

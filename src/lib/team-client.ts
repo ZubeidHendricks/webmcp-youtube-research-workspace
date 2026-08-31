@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
+import { isUnsupportedLink } from "@/lib/papers/types";
 
 /**
  * Dispatching the research team.
@@ -16,6 +17,12 @@ export function useResearchTeam() {
 
   const dispatchTeam = useCallback(
     async (topic: string) => {
+      if (isUnsupportedLink(topic)) {
+        throw new Error(
+          "The research team searches arXiv. Give it a topic to research rather than a link.",
+        );
+      }
+
       // Set the topic immediately so the researcher sees something happened.
       await apply({ type: "set_topic", topic });
       await apply({
