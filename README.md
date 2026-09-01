@@ -1,243 +1,180 @@
-# YouGo
-
-A research workspace for papers that people and their AI agents operate **together**. The
-page registers its own tools with the browser through
-[WebMCP](https://github.com/webmachinelearning/webmcp)
-(`document.modelContext.registerTool`), so whatever agent is driving the page can search
-arXiv, read full texts, and file cited notes into the same workspace the human is looking
-at — and can read back what everyone else did.
+# Dispatch
 
 **Live:** https://yougo.k53.tech
 
+The weekly decision memo for an ad account, written **in the room** rather than handed over.
+
+Agents read the account and file findings; every finding must cite a number, and the number
+is checked before the finding lands. A human accepts or dismisses each one. Everyone with
+the link — and every agent driving their browser — works on the same memo, live.
+
+The page registers its own tools with the browser through
+[WebMCP](https://github.com/webmachinelearning/webmcp)
+(`document.modelContext.registerTool`), so an agent isn't describing analysis it did
+somewhere else. It is doing the analysis in the document the buyer is reading.
+
 Built for [The WebMCP Challenge](https://webmcp.devpost.com/).
 
-## Shared workspaces
+## Why this fits WebMCP
 
-Every workspace has a URL — `/w/<id>` — and the link is the invitation. Everyone who opens
-it, and every agent driving one of those browsers, works in the same sources and notes.
-Contributions carry their author, so the notes panel shows which agent or person filed
-what, and `read_workspace` shows an agent what the humans have been doing.
+Reviewing an ad account is asymmetric work. A buyer can tell in seconds whether a reading is
+plausible, but pulling the numbers that justify it across five campaigns and thirteen ad sets
+is an afternoon. An agent is the reverse: it can read every line instantly, but it has
+nowhere to put what it finds, and no way to be held to the numbers.
 
-Two agents in two browsers can genuinely work the same problem: one collecting and citing,
-another reading the same sources and filing counterpoints, while a person watches both
-land. Identity is per-tab, so a person and their agent appear separately; participants who
-stop checking in drop off the list after 90 seconds.
+Today the gap is bridged by copy-paste — the agent writes a summary in a chat window, the
+buyer retypes the useful parts into a doc, and the link back to the specific metric is lost.
+Which matters, because *"CPM is climbing in Creative Testing"* is worth nothing if nobody can
+check it.
 
-State lives in Upstash Redis (provisioned through the Vercel Marketplace) behind
-`/api/workspace/[id]`, and browsers poll for changes every two seconds.
+Putting the tools in the page closes both halves:
 
-### Why the storage is shaped the way it is
+- The agent calls `file_finding`, and it appears in the buyer's memo as a claim with a
+  citation they can click through to the numbers behind it.
+- **The claim is verified before it lands.** `file_finding` re-reads the cited metric from the
+  account and refuses the finding if the value is wrong — an agent that cannot point at the
+  number does not get to make the claim.
+- The buyer accepts or dismisses, and the verdict is visible to every agent on its next
+  `read_memo`.
+- Several agents work at once, each under its own name, and disagreement stays on the record
+  rather than being resolved silently.
 
-The workspace is stored as separate Redis structures — a hash of sources, a list of notes,
-a hash of participants — rather than one JSON document. A single document with
-compare-and-set **lost 4 of 10 concurrent notes** in testing, because several agents writing
-at once is the normal case here, not an edge case. With `RPUSH` for notes and `HSETNX` for
-sources, 20 parallel notes from three agents all survive, and eight simultaneous collects of
-the same video collapse to one source.
+A server-side MCP tool can fetch these metrics. It cannot put a finding in front of you,
+take your verdict, and let a second agent argue with it.
 
-## Asking the sources
+## The finding taxonomy
 
-Once a paper's full text has been read, it is indexed for retrieval, and `ask_sources` (or
-the ask box above the panes) answers questions from it:
+Closed, deliberately. An open-ended "insight" field drifts in wording every run and makes the
+diff between two weeks meaningless.
 
-> **Q:** What defence does this paper propose, and how well does it work?
-> **A:** …UniGuardian, a framework that detects prompt-trigger attacks at inference time…
-> — *"we propose UniGuardian, a novel framework"* · **Abstract**
-
-Retrieval runs across every collected paper at once, so it answers cross-source questions —
-where several papers agree, and where they conflict. The answer and each supporting quote
-are filed into the notes, so an answer becomes part of the shared artifact rather than a
-message that scrolls away.
-
-**How it works.** Paragraphs are merged into ~1,200-character chunks that never cross a
-section boundary, embedded by Upstash Vector's hosted model into a per-workspace namespace.
-The question is embedded the same way, so wording that appears nowhere in the paper still
-retrieves the right passage.
-
-**Citations open the paper at the words.** Each citation links with a
-[text fragment](https://developer.mozilla.org/en-US/docs/Web/URI/Fragment/Text_fragments)
-(`#:~:text=…`), so clicking one opens the paper scrolled to that sentence and highlights it —
-the papers equivalent of a video timestamp, and the reason a claim stays checkable.
-
-## The research team
-
-`dispatch_research_team` puts four agents on a topic. They are not a chat thread — each
-joins the workspace as a participant and files into it as it goes, so findings arrive on
-screen while the run is still going:
-
-| Role | What it contributes |
+| Kind | When it applies |
 | --- | --- |
-| **Scout** | Reads a dozen candidates and picks the few worth a researcher's time, saying why |
-| **Reader** | Pulls quoted claims out of each paper, anchored to the section they came from |
-| **Critic** | Challenges the evidence and names what the sources disagree about |
-| **Synthesist** | States what is established, what is contested, and what to look at next |
+| `cruising` | Stable and performing. "Leave this alone" is a finding. |
+| `turbulence` | In or near learning, or destabilised: low volume, erratic cost. |
+| `rip_current` | Rising CPM and falling conversion rate together, usually with too many concurrent tests. Consolidate, never scale. |
+| `scale` | Sustained efficiency with headroom. Name the increment. |
+| `consolidate` | Spend fragmented across ad sets competing in the same auction. |
+| `fatigue` | Frequency climbing while CTR or CVR decays on the same creative. |
 
-Runs on Groq (`openai/gpt-oss-120b`) via the AI SDK. A run on "prompt injection attacks on
-tool-using agents" produced 4 papers — all four read in full — and 16 notes including 8
-quoted citations, with the Critic noting that no unified benchmark exists across text, web
-and robotic tool-using agents.
-
-The tool returns immediately rather than awaiting the run, because the point is watching
-the work land. A person can dispatch the same team from the button under the search box.
-
-## Why papers, not video
-
-This started on YouTube. That failed for a measurable reason: YouTube withholds
-auto-generated caption tracks from datacenter IPs — across 20 videos sampled from four
-caption-heavy topics, **none** were readable from a deployed server. Citations and Q&A only
-worked if an agent supplied a transcript, so a visitor without an agent saw neither.
-
-arXiv serves full text to anyone. Search, metadata and section-tagged paragraphs all work
-server-side, so every feature works for every visitor — and the agent tools are then a
-genuine multiplier rather than the only way in. Full-text retrieval tries arXiv's own HTML
-rendering first and ar5iv as a fallback, twice each, because a single slow response was
-otherwise dropping three of four papers in a research run.
-
-## Why WebMCP fits
-
-Reading research is asymmetric work. A person can judge in seconds whether a paper is worth
-their time, but reading four of them to find where they actually disagree is a day. An agent
-is the reverse: it can read all four instantly, but it has nowhere to put what it finds. The
-gap is bridged by copy-paste — the agent summarizes in a chat window, the person retypes the
-useful parts, and the citation back to the exact sentence is lost.
-
-WebMCP closes the gap by putting both parties inside the same page. YouGo exposes its own
-operations as tools, so an agent isn't describing research it did elsewhere — it is *doing*
-research in the artifact the person is looking at:
-
-- The agent calls `ask_sources` and finds the three passages that matter across four papers.
-- It calls `cite_passage`, and a quoted citation appears in the researcher's notes panel,
-  linking straight to that sentence in the paper.
-- It calls `set_focus` to put the relevant paper on screen while it explains.
-- The researcher cites a passage themselves; the agent sees it on its next `read_workspace`.
-
-That only works if the tools are the page's own state, which is what WebMCP provides and
-what a conventional MCP server cannot: a server-side tool can fetch a paper, but it cannot
-put a citation on the screen in front of you.
-
-## Provenance
-
-Everything in this repository was written during the Hackathon Submission Period. The repo
-was created 2026-08-29 and its full commit history is public and dated.
-
-An earlier revision adapted two files from the author's pre-existing
-[youtube-mcp-server](https://github.com/ZubeidHendricks/youtube-mcp-server) while the corpus
-was YouTube; both were removed when the workspace moved to papers, and no code from that
-project remains. The history shows the change.
-
-## Third-party terms
-
-- **Groq** — runs the research team's models (`openai/gpt-oss-120b`) via the Vercel AI SDK.
-- **Upstash Redis** — shared workspace state, provisioned through the Vercel Marketplace.
-- **Upstash Vector** — transcript embeddings and retrieval, using its hosted embedding model.
-- **arXiv API** — public, no key, used for search and paper metadata.
-- **arXiv HTML / ar5iv** — full text of papers, as published for readers.
+Severity is 1 (worth knowing), 2 (act this week) or 3 (act today).
 
 ## Registered tools
 
 | Tool | What it does |
 | --- | --- |
-| `search_papers` | Searches arXiv; results appear in the workspace |
-| `collect_paper` | Pulls a paper in as a research source |
-| `read_paper` | Reads the full text as section-tagged paragraphs, filterable |
-| `ask_sources` | Answers a question from the collected papers, with quoted evidence |
-| `cite_passage` | Files a citation anchored to an exact quote, with commentary |
-| `add_note` | Adds a freeform note — a synthesis, question, or next step |
-| `dispatch_research_team` | Puts a four-agent team on a topic; they join and file into the workspace |
-| `join_workspace` | Announces an agent under a name so its contributions are labelled |
-| `list_participants` | Shows who else — person or agent — is working here |
-| `read_workspace` | Reads topic, sources, and all notes, including the humans' |
-| `set_focus` | Changes what the researcher sees on screen |
-| `remove_item` | Removes a source or note (destructive; confirmation requested) |
+| `get_account_summary` | Account totals and efficiency for the window |
+| `get_breakdown` | Per-campaign or per-ad-set performance, sorted by spend |
+| `check_metric` | One metric for one entity, as the buyer's screen shows it |
+| `file_finding` | Files a finding — refused if its citation doesn't check out |
+| `set_finding_status` | Accepts or dismisses a finding, with a reason |
+| `read_memo` | The memo as it stands, with citations and verdicts |
+| `dispatch_analyst_team` | Puts Analyst, Skeptic and Strategist on the account |
+| `set_focus` | Changes what the buyer sees on screen |
+| `join_room` | Announces an agent under a name |
+| `list_participants` | Who else is working this account, and what they filed |
+
+## The analyst team
+
+`dispatch_analyst_team` puts three agents on the account. They join as participants and file
+as they go, so the memo assembles on screen rather than arriving finished:
+
+| Role | Contributes |
+| --- | --- |
+| **Analyst** | Reads the account and files findings, each with a citation |
+| **Skeptic** | Rules on every finding — accepts or dismisses, and says why |
+| **Strategist** | Files what happens Monday: the increment, the consolidation, or an explicit "leave it alone" |
+
+A production run took ~90 seconds and produced 9 findings. The Skeptic accepted 3 and
+dismissed 3, killing a rip-current claim as *"single-period snapshot; cannot verify a rising
+CPM trend"* and a fatigue claim because *"frequency 3.30 is higher than other sets but CTR
+and CVR are stable"*. That disagreement is the point: it is what a memo is for.
+
+## The demo account
+
+Dispatch proper reads a connected Meta ad account. A judge cannot connect one, so the room
+runs on a **seeded, deterministic account** — Northwind Outdoor, 5 campaigns, 13 ad sets, 28
+days. Every visitor sees identical numbers, which is what makes a citation checkable at all,
+and the campaigns are shaped so each situation in the taxonomy actually occurs.
+
+Real Meta ingest is Phase 3 of the parent project, after App Review. Nothing here writes to
+any ad account.
 
 ## Trying the tools without a WebMCP browser
 
-Append `?agent-sim=1` to any page URL to install a spec-shaped stand-in for
-`document.modelContext` before the app hydrates. The app's real registration path runs
-unchanged, and the tools become callable from the console:
+Append `?agent-sim=1` to any room URL to install a spec-shaped stand-in for
+`document.modelContext` before the app hydrates. The real registration path runs unchanged:
 
 ```js
 await document.modelContext.getTools();
-await document.modelContext.executeTool("search_papers", '{"query":"ai agents"}');
+await document.modelContext.executeTool("get_account_summary", "{}");
 ```
 
-The banner reads "Simulated agent (testing)" so the state is never mistaken for a real
-agent. Without the query parameter the stub is not installed and the page behaves normally.
+The banner reads "Simulated agent (testing)" so it is never mistaken for a real agent.
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env.local   # add a YouTube Data API v3 key
-npm run dev                  # http://localhost:3000
+cp .env.example .env.local   # Groq key + Marketplace-provisioned Redis
+npm run dev
 ```
 
-`GROQ_API_KEY` powers the research team and the answering model. Redis and Vector
-credentials are provisioned by the Marketplace commands in `.env.example`. arXiv needs no
-key.
+`GROQ_API_KEY` powers the analyst team. Redis credentials come from
+`vercel integration add upstash/upstash-kv`. The demo account needs no credentials.
 
-The app works as an ordinary web app in any browser — every feature, including citations
-and Q&A, works with no agent present. To exercise the agent tools you need a
-WebMCP-capable browser:
-
-- **ChatGPT's in-app browser** — native WebMCP support
-- **Chrome 149+** — enable the flag at `chrome://flags/#enable-webmcp-testing`
-
-A banner at the top of the page shows which mode you're in. Chrome DevTools has a
-[WebMCP panel](https://developer.chrome.com/docs/devtools/application/webmcp) for inspecting
-registered tools.
+To exercise the agent tools you need ChatGPT's in-app browser, or Chrome 149+ with
+`chrome://flags/#enable-webmcp-testing`.
 
 ## Architecture
 
 ```
 src/
-  types/webmcp.d.ts              Ambient types for document.modelContext
-  lib/webmcp/use-webmcp-tool.ts  Hook: registers one tool for a component's lifetime
-  lib/webmcp/support.ts          Feature detection
-  lib/workspace-store.tsx        Shared state: topic, sources, notes, focus
-  lib/workspace-actions.ts       Operations the UI and the tools both call
-  lib/papers/search.ts           arXiv search and metadata
-  lib/papers/fulltext.ts         Section-tagged full text, with a fallback renderer
-  lib/rag/index-passages.ts      Chunking + Upstash Vector indexing and retrieval
-  lib/rag/ask.ts                 Grounded answering with quoted citations
-  lib/team/run.ts                The four-role research team pipeline
-  lib/workspace/server.ts        Redis-backed shared state
-  app/api/papers/*               Route handlers
-  components/research-tools.tsx  ← the agent-facing surface
-  components/workspace.tsx       Human UI
-  components/agent-status.tsx    "Agent tools active" banner
+  types/webmcp.d.ts             Ambient types for document.modelContext
+  lib/webmcp/use-webmcp-tool.ts Hook: registers one tool for a component's lifetime
+  lib/account/data.ts           The seeded demo account
+  lib/account/query.ts          Fixed query shapes — no free-form query tool
+  lib/room/types.ts             Finding taxonomy, citations, room state
+  lib/room/server.ts            Redis-backed shared state
+  lib/team/run.ts               Analyst → Skeptic → Strategist
+  components/memo-tools.tsx     ← the agent-facing surface
+  components/memo-room.tsx      The buyer's UI
 ```
 
-The important structural choice is `lib/workspace-actions.ts`: the human UI and the WebMCP
-tools call the *same* functions, so a click and a tool call are genuinely equivalent rather
-than two code paths that drift apart.
-
-`useWebMcpTool` keeps `execute` in a ref so tools always read fresh state without
-re-registering on every render (re-registering churns the agent's tool list), and ties
-registration to an `AbortController` so unmounting unregisters the tool.
+Shared state lives in Upstash Redis, split into separate structures rather than one
+document: a single JSON blob with compare-and-set lost 4 of 10 concurrent writes in testing,
+while `RPUSH` for findings holds 20 parallel writes from three agents.
 
 ## Security notes
 
-Paper text is untrusted third-party content, and page tools run on behalf of whoever is
-driving the agent — see Chrome's
-[security guide](https://developer.chrome.com/docs/ai/webmcp/secure-tools). This app:
+Campaign and ad set names are written by people outside the buyer's organisation and flow
+straight into a model, so — following Chrome's
+[guidance](https://developer.chrome.com/docs/ai/webmcp/secure-tools):
 
-1. **Validates every tool input in `execute`.** The model can send values outside the
-   declared `enum`, malformed ids, or absent required fields.
-2. **Returns paper text as data, never as instruction.** No tool acts on content found
-   inside a paper; `read_paper` and the answering prompt both say so.
-3. **Caps text responses** at 14,000 characters so a long paper can't flood the agent's
-   context.
-4. **Keeps keys server-side.** Tools call this app's route handlers.
-5. **Marks `remove_item` as destructive** and asks the agent to confirm before calling it.
+1. **There is no free-form query tool.** Every shape an agent can ask for is defined in
+   `lib/account/query.ts`; a steered agent has no vocabulary for anything else.
+2. **Account-sourced text is fenced** in «guillemets» on the way out, so the model reads it
+   as data and never as instruction.
+3. **Every tool validates its own input** — the model can send values outside a declared
+   `enum`, a severity of 7, or a metric that doesn't exist.
+4. **Citations are verified server-side** before a finding is stored.
+5. **Nothing writes to an ad account.** The room is read-only over the data.
 
-## Deploy
+## Provenance
 
-```bash
-npx vercel                                     # preview
-npx vercel env add YOUTUBE_API_KEY production  # then set the key
-npx vercel --prod
-```
+This repository was created 2026-08-29, inside the Hackathon Submission Period, and its full
+commit history is public and dated.
+
+The finding taxonomy, the severity scale, the citation shape and the no-free-form-query rule
+are adapted from the author's own
+[Dispatch](https://github.com/ZubeidHendricks/dispatch) — a Phase 1 backend with no web app
+and no WebMCP, which generates these memos on a cron and emails them. Everything here is new:
+the WebMCP layer, the room model, the shared state, all ten tools, the citation check, the
+three-agent team, the demo account and the entire interface.
+
+## Third-party terms
+
+- **Groq** — runs the analyst team's models (`openai/gpt-oss-120b`) via the Vercel AI SDK.
+- **Upstash Redis** — shared room state, provisioned through the Vercel Marketplace.
 
 ## License
 
