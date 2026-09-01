@@ -1,86 +1,80 @@
-# Submission text — YouGo
+# Submission text — Dispatch
 
-Paste-ready answers for the Devpost submission form.
+Paste-ready answers for the Devpost form.
 
-**Live:** https://yougo.k53.tech · **Repo:** https://github.com/ZubeidHendricks/yougo
+**Live:** https://yougo.k53.tech · **Repo:** https://github.com/ZubeidHendricks/dispatch-room
 
 ---
 
 ## Why this use case is a strong fit for WebMCP
 
-Video research is asymmetric work. A person can judge in seconds whether a source is worth
-their time, but reading an hour of video to find the three moments that matter is punishing.
-An agent is the reverse: it can read that hour instantly, but it has nowhere to put what it
-finds. Today that gap is bridged by copy-paste — the agent summarizes in a chat window, the
-person retypes the useful parts into a document, and the citation back to the exact moment
-is lost on the way.
+Reviewing an ad account is asymmetric work. A media buyer can tell in seconds whether a
+reading is plausible, but pulling the numbers that justify it across five campaigns and
+thirteen ad sets is an afternoon. An agent is the reverse: it can read every line instantly,
+but it has nowhere to put what it finds — and no way to be held to the numbers.
 
-WebMCP closes the gap by putting both parties inside the same page. YouGo exposes its own
-operations as tools, so an agent isn't describing research it did elsewhere — it is *doing*
-research in the artifact the person is looking at. A citation filed at 4:12 of a talk appears
-immediately in the researcher's notes as a clickable timestamp. A note the researcher writes
-by hand is visible to the agent on its next `read_workspace` call.
+Today that gap is bridged by copy-paste. The agent writes a summary in a chat window, the
+buyer retypes the useful parts into a document, and the link back to the specific metric is
+lost on the way. That last part matters more than it sounds: "CPM is climbing in Creative
+Testing" is worth nothing if nobody can check it, and a memo full of unverifiable claims is
+worse than no memo, because people act on it.
 
-That only works if the tools are the page's own state, which is exactly what WebMCP provides
-and what a conventional MCP server cannot: a server-side MCP tool can fetch a transcript, but
-it cannot put a citation on the screen in front of you.
+Putting the tools in the page closes both halves. The agent calls `file_finding` and it
+appears in the buyer's memo as a claim with a citation they can click through to the numbers
+behind it. More importantly, **the claim is verified before it lands** — `file_finding`
+re-reads the cited metric from the account and refuses the finding if the value is wrong. An
+agent that cannot point at the number does not get to make the claim.
+
+That is only possible because the tools are the page's own state. A conventional MCP server
+can fetch these metrics; it cannot put a finding in front of you, take your verdict, and let
+a second agent argue with it.
 
 ## How it creates a better user experience
 
-- **Findings land where the work is.** Agent output is a row in the notes panel, anchored to
-  a video and a timestamp, not a paragraph in a chat log to be transcribed.
-- **Citations stay verifiable.** Every anchored note deep-links to the exact second, so a
-  claim can be checked in one click instead of taken on faith.
-- **Questions are answered from the sources, not from memory.** `ask_sources` retrieves
-  across every collected transcript and answers with quoted evidence, filing the answer and
-  its citations into the notes.
-- **The agent can direct attention.** `set_focus` changes what is on screen, so an agent
-  explaining a comparison can put the relevant source in front of you as it talks.
-- **Nobody is blocked by anyone.** The workspace works with no agent present, several agents
-  can work at once, and state is shared rather than handed off.
+- **Findings arrive where the decision is made**, as rows in the memo, not paragraphs in a
+  chat log to be transcribed.
+- **Every claim is checkable.** Each finding carries the metric, entity and value it rests
+  on, and one click shows the numbers behind it.
+- **Fabrication is refused, not caught later.** A finding citing a CPM of $4.10 when the real
+  figure is $20.88 is rejected with the true number.
+- **Disagreement stays on the record.** Dismissed findings remain visible, struck through,
+  with the reason — so next week's memo can be read against this week's argument.
+- **Several agents work at once**, each under its own name, alongside the humans.
 
 ## What people and agents can do together that was difficult before
 
-Open a workspace and send the link to a colleague. Both of you have an agent. Ask for a
-research team on a topic and four agents — Scout, Reader, Critic, Synthesist — join the
-workspace and file sources, quoted claims, challenges and a synthesis into it over about
-twenty seconds, while both of you watch and add notes of your own. Then ask the collected
-sources a question in plain language and get an answer with quotes you can click through to
-the exact second.
+Open a room and send the link to your strategist. Both of you have an agent. Press *Send the
+analyst team*: three agents join and, over about ninety seconds, an Analyst files findings
+with citations, a Skeptic rules on each one, and a Strategist files what happens Monday —
+while you both watch and rule on findings yourselves.
 
-Previously this was either fully manual (scrub the videos yourself) or fully delegated
-(accept a chat summary with no verifiable anchors). The collaborative middle — several
-agents and several people contributing verifiable citations into one document they are all
-editing at once — had no natural home on the web.
+In a real run the Skeptic dismissed a rip-current claim as *"single-period snapshot; cannot
+verify a rising CPM trend"* and a fatigue claim because *"frequency 3.30 is higher than other
+sets but CTR and CVR are stable"*. It accepted a scale recommendation on evidence of 8.40×
+ROAS and $10.27 CPA. That argument — between two agents, in front of the person who has to
+act — had no natural home on the web before.
 
 ## How WebMCP was implemented
 
-A `useWebMcpTool` hook wraps `document.modelContext.registerTool`, registering one tool for a
-component's lifetime, tying registration to an `AbortController` so unmounting unregisters,
-and holding `execute` in a ref so tools read current state without re-registering on every
-render.
+A `useWebMcpTool` hook wraps `document.modelContext.registerTool`, registering one tool per
+component lifetime, tying registration to an `AbortController` so unmounting unregisters, and
+holding `execute` in a ref so tools read current state without re-registering each render.
 
-Thirteen tools are registered from `src/components/research-tools.tsx`: `search_videos`,
-`collect_source`, `read_transcript`, `provide_transcript`, `cite_moment`, `add_note`,
-`ask_sources`, `dispatch_research_team`, `join_workspace`, `list_participants`,
-`read_workspace`, `set_focus`, `remove_item`.
+Ten tools are registered from `src/components/memo-tools.tsx`: `get_account_summary`,
+`get_breakdown`, `check_metric`, `file_finding`, `set_finding_status`, `read_memo`,
+`dispatch_analyst_team`, `set_focus`, `join_room`, `list_participants`.
 
-The structural decision that makes the collaboration real is `src/lib/workspace-actions.ts`:
-the human UI and the WebMCP tools call the *same* functions, so a click and a tool call are
-one operation rather than two code paths that drift. Shared state lives in Upstash Redis,
-split into separate structures rather than one document — a single JSON blob with
-compare-and-set lost 4 of 10 concurrent notes in testing, while `RPUSH` for notes and
-`HSETNX` for sources hold 20 parallel writes from three agents. Transcript retrieval uses
-Upstash Vector with hosted embeddings, namespaced per workspace.
+The UI and the tools call the same endpoints, so a number an agent cites is the number on the
+buyer's screen rather than a second implementation that can drift. Shared room state lives in
+Upstash Redis, split into separate structures rather than one document — a single JSON blob
+with compare-and-set lost 4 of 10 concurrent writes in testing, while `RPUSH` for findings
+holds 20 parallel writes from three agents.
 
-On safety, transcript text is untrusted third-party content: every tool validates its own
-input, transcript responses are capped so a long video cannot flood an agent's context, the
-answering model is told to treat passages as evidence and never as instructions, and the one
-destructive tool asks for confirmation in its description.
+On safety: there is no free-form query tool, so a steered agent has no vocabulary beyond the
+fixed shapes; campaign names written by people outside the buyer's organisation are fenced in
+guillemets so the model reads them as data, never instruction; every tool validates its own
+input; and nothing writes to an ad account.
 
-Transcripts are deliberately best-effort. YouTube withholds auto-generated captions from
-datacenter IPs — measured across 20 videos, none were readable server-side — so when a fetch
-fails the tool tells the agent to read the video by its own means and send the lines back
-with `provide_transcript`, after which they render, cite and index exactly like a fetched
-transcript. The page contributes the workspace, the citation structure and the retrieval; the
-agent contributes reading it can do better anyway.
+Judges cannot connect a Meta ad account, so the room runs on a seeded deterministic account
+of 5 campaigns and 13 ad sets over 28 days, shaped so each situation in the taxonomy actually
+occurs. Every visitor sees identical numbers — which is what makes a citation checkable.
