@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useWebMcpSupport } from "./availability";
 import type { WebMcpInputSchema } from "@/types/webmcp";
 
 export interface UseWebMcpToolOptions<Input> {
@@ -20,6 +21,10 @@ export interface UseWebMcpToolOptions<Input> {
  *
  * `execute` is kept in a ref so the tool always sees fresh state without
  * re-registering on every render — re-registering churns the agent's tool list.
+ *
+ * Registration is keyed on WebMCP availability rather than done once on mount:
+ * an agent browser may install `document.modelContext` after hydration, and a
+ * single early check would leave the tool unregistered for the page's life.
  */
 export function useWebMcpTool<Input = Record<string, unknown>>({
   name,
@@ -34,6 +39,7 @@ export function useWebMcpTool<Input = Record<string, unknown>>({
   });
 
   const schemaKey = JSON.stringify(inputSchema);
+  const support = useWebMcpSupport();
 
   useEffect(() => {
     if (!enabled) return;
@@ -57,5 +63,5 @@ export function useWebMcpTool<Input = Record<string, unknown>>({
       });
 
     return () => controller.abort();
-  }, [name, description, schemaKey, enabled]);
+  }, [name, description, schemaKey, enabled, support]);
 }

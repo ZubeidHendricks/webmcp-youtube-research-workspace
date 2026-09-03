@@ -1,19 +1,12 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { detectWebMcpSupport } from "@/lib/webmcp/support";
-
-/** WebMCP availability is fixed for the page's lifetime, so nothing to subscribe to. */
-const subscribe = () => () => {};
+import { useWebMcpSupport } from "@/lib/webmcp/availability";
 
 /** Tells the human whether an agent can currently drive this page. */
 export function AgentStatus() {
-  // Renders "unknown" (nothing) on the server, then the real value after hydration.
-  const support = useSyncExternalStore(
-    subscribe,
-    detectWebMcpSupport,
-    () => "unknown" as const,
-  );
+  // "unknown" (nothing) on the server; after hydration this keeps watching, so
+  // an agent that installs `document.modelContext` late still flips the banner.
+  const support = useWebMcpSupport();
 
   if (support === "unknown") return null;
 
