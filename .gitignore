@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# demo video artefacts (the video lives on YouTube)
+*.mp4
+narration.srt
